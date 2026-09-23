@@ -1,0 +1,4 @@
+base: configs/default.yaml
+ablation: no_cross_fusion
+model:
+  cross_fusion: false
