@@ -20,16 +20,7 @@ from src.data.time_features import load_time_bucketizer
 from src.models.dsrec import DSRec
 
 
-# ---------------------------------------------------------------------
-# Paths / built-in defaults
-# ---------------------------------------------------------------------
-
 CHECKPOINT_DIR = Path("data/checkpoints")
-
-
-# ---------------------------------------------------------------------
-# Data / model / training defaults
-# ---------------------------------------------------------------------
 
 DEFAULT_CONFIG = Config()
 
@@ -51,26 +42,14 @@ EPOCHS = DEFAULT_CONFIG.training.epochs
 def build_examples(
     df: pd.DataFrame,
 ) -> tuple[list[Example], list[Example]]:
-    """
-    Build training and validation examples.
-
-    Training:
-        Sliding-window examples from the training portion.
-
-    Validation:
-        One example per user:
-        validation context -> validation target.
-    """
+    """Build sliding-window training examples and one validation example per user."""
 
     sequences = build_sequences(df)
-
     train_examples: list[Example] = []
     val_examples: list[Example] = []
 
     for sequence in sequences.values():
-
         split = leave_one_out_split(sequence)
-
         if split is None:
             continue
 
@@ -107,7 +86,6 @@ def evaluate(
     """Evaluate average validation loss."""
 
     model.eval()
-
     total_loss = 0.0
     total_examples = 0
 
@@ -146,8 +124,9 @@ def save_checkpoint(
     train_loss: float,
     val_loss: float,
     path: Path,
+    model_config: dict[str, object] | None = None,
 ) -> None:
-    """Save model + optimizer state."""
+    """Save model, optimizer state, metrics, and model configuration."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -158,6 +137,7 @@ def save_checkpoint(
             "optimizer_state_dict": optimizer.state_dict(),
             "train_loss": train_loss,
             "val_loss": val_loss,
+            "model_config": model_config or {},
         },
         path,
     )
@@ -242,6 +222,12 @@ def main() -> None:
     expansion = int(model_config.expansion)
     dropout = float(model_config.dropout)
 
+    cross_fusion = bool(model_config.cross_fusion)
+    dual_interest = bool(model_config.dual_interest)
+    short_ssm = bool(model_config.short_ssm)
+    long_branch = str(model_config.long_branch)
+    short_branch = str(model_config.short_branch)
+
     learning_rate = float(training_config.learning_rate)
     processed_dir = Path(data_config.processed_dir)
 
@@ -260,6 +246,11 @@ def main() -> None:
     print("Blocks:", n_blocks)
     print("State dimension:", d_state)
     print("Learning rate:", learning_rate)
+    print("Cross fusion:", cross_fusion)
+    print("Dual interest:", dual_interest)
+    print("Short SSM:", short_ssm)
+    print("Long branch:", long_branch)
+    print("Short branch:", short_branch)
     print(
         "Max train batches:",
         args.max_train_batches if args.max_train_batches is not None else "ALL",
@@ -270,17 +261,13 @@ def main() -> None:
     )
 
     interactions_path = processed_dir / "interactions.pkl"
-
     print(f"Loading interactions from: {interactions_path}")
 
     df = pd.read_pickle(interactions_path)
-
     print(f"Interactions: {len(df):,}")
 
     print("Building train/validation examples...")
-
     train_examples, val_examples = build_examples(df)
-
     print(f"Training examples: {len(train_examples):,}")
     print(f"Validation examples: {len(val_examples):,}")
 
@@ -328,6 +315,11 @@ def main() -> None:
         conv_width=conv_width,
         expansion=expansion,
         dropout=dropout,
+        cross_fusion=cross_fusion,
+        dual_interest=dual_interest,
+        short_ssm=short_ssm,
+        long_branch=long_branch,
+        short_branch=short_branch,
     ).to(device)
 
     parameter_count = sum(p.numel() for p in model.parameters())
@@ -341,14 +333,26 @@ def main() -> None:
     )
 
     criterion = torch.nn.CrossEntropyLoss()
-
     best_val_loss = float("inf")
-
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+
+    checkpoint_model_config = {
+        "d_model": d_model,
+        "n_time_buckets": n_time_buckets,
+        "n_blocks": n_blocks,
+        "d_state": d_state,
+        "conv_width": conv_width,
+        "expansion": expansion,
+        "dropout": dropout,
+        "cross_fusion": cross_fusion,
+        "dual_interest": dual_interest,
+        "short_ssm": short_ssm,
+        "long_branch": long_branch,
+        "short_branch": short_branch,
+    }
 
     for epoch in range(1, epochs + 1):
         model.train()
-
         total_loss = 0.0
         total_examples = 0
 
@@ -428,13 +432,13 @@ def main() -> None:
             train_loss=train_loss,
             val_loss=val_loss,
             path=last_path,
+            model_config=checkpoint_model_config,
         )
 
         print(f"Saved checkpoint: {last_path}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-
             best_path = CHECKPOINT_DIR / "best.pt"
 
             save_checkpoint(
@@ -444,6 +448,7 @@ def main() -> None:
                 train_loss=train_loss,
                 val_loss=val_loss,
                 path=best_path,
+                model_config=checkpoint_model_config,
             )
 
             print(f"New best validation loss: {best_val_loss:.4f}")
