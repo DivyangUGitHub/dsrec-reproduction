@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from pathlib import Path
+import pickle
+
+import pandas as pd
+import torch
+
+from src.data.time_features import load_time_bucketizer
+from src.models.dsrec import DSRec
+
+
+class Predictor:
+    """Loads the trained DSRec checkpoint and produces top-k item scores.
+
+    This is intentionally deterministic at inference time: evaluation mode,
+    CPU/CUDA selected automatically, and no training-side state is mutated.
+    """
+
+    def __init__(
+        self,
+        checkpoint: Path,
+        interactions: Path,
+        time_bucketizer: Path,
+        user_mapping: Path,
+        max_len: int = 50,
+    ) -> None:
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.max_len = max_len
+        self.interactions = pd.read_pickle(interactions)
+        self.bucketizer = load_time_bucketizer(time_bucketizer)
+        with user_mapping.open("rb") as f:
+            self.user_mapping = pickle.load(f)
+
+        ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
+        state = ckpt["model_state_dict"]
+        n_items = state["item_embedding.weight"].shape[0] - 1
+        self.model = DSRec(
+            n_items=n_items,
+            d_model=64,
+            n_time_buckets=10,
+            n_blocks=2,
+            d_state=32,
+            conv_width=4,
+            expansion=2,
+            dropout=0.2,
+        ).to(self.device)
+        self.model.load_state_dict(state)
+        self.model.eval()
+        self.model_version = f"epoch-{ckpt.get('epoch', 'unknown')}"
+
+    def _internal_user_id(self, raw_user_id: int) -> int:
+        return int(self.user_mapping.raw_to_internal.get(raw_user_id, 0))
+
+    def recommend(self, raw_user_id: int, top_k: int = 10) -> list[tuple[int, float]]:
+        internal_user = self._internal_user_id(raw_user_id)
+        if internal_user == 0:
+            raise KeyError(f"Unknown user_id: {raw_user_id}")
+
+        hist = self.interactions[self.interactions["user_id"] == internal_user].tail(self.max_len)
+        if hist.empty:
+            raise KeyError(f"User has no interaction history: {raw_user_id}")
+
+        item_ids = hist["item_id"].tolist()
+        timestamps = hist["timestamp"].tolist()
+        gaps = [0] + [max(0, int(timestamps[i] - timestamps[i - 1])) for i in range(1, len(timestamps))]
+        time_bucket_ids = [int(self.bucketizer.transform(g)) for g in gaps]
+
+        ids = torch.tensor([item_ids], dtype=torch.long, device=self.device)
+        tb = torch.tensor([time_bucket_ids], dtype=torch.long, device=self.device)
+        mask = torch.ones_like(ids, dtype=torch.bool)
+        with torch.inference_mode():
+            logits = self.model(ids, tb, mask)[0]
+            values, indices = torch.topk(logits, k=min(top_k, logits.numel() - 1))
+
+        return [(int(i), float(v)) for i, v in zip(indices.tolist(), values.tolist()) if i != 0]
