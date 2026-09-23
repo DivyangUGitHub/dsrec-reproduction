@@ -1,0 +1,20 @@
+service:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1
+  log_level: info
+
+model:
+  checkpoint: data/checkpoints/best.pt
+  max_len: 50
+  top_k_default: 10
+  top_k_max: 100
+
+data:
+  interactions: data/processed/interactions.pkl
+  time_bucketizer: data/processed/time_bucketizer.pkl
+  user_mapping: data/processed/user_mapping.pkl
+
+runtime:
+  device: auto
+  deterministic_inference: true
