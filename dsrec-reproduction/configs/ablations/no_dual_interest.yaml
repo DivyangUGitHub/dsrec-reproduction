@@ -1,0 +1,4 @@
+base: configs/default.yaml
+ablation: no_dual_interest
+model:
+  dual_interest: false
