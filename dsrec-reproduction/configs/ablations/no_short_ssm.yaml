@@ -1,0 +1,4 @@
+base: configs/default.yaml
+ablation: no_short_ssm
+model:
+  short_ssm: false
