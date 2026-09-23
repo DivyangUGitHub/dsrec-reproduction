@@ -22,7 +22,6 @@ class FeedForward(nn.Module):
 
     def __init__(self, d_model: int, dropout: float = 0.2):
         super().__init__()
-
         self.net = nn.Sequential(
             nn.Linear(d_model, 4 * d_model),
             nn.GELU(),
@@ -56,15 +55,16 @@ class DSRecBlock(nn.Module):
 
         if long_branch != "mamba":
             raise ValueError(f"Unsupported long_branch: {long_branch}")
-
         if short_branch not in {"time_aware_ssm", "mamba"}:
             raise ValueError(f"Unsupported short_branch: {short_branch}")
 
         self.cross_fusion = cross_fusion
         self.dual_interest = dual_interest
-        self.short_ssm = short_ssm
+        self.use_short_ssm = short_ssm
         self.short_branch = short_branch
 
+        # Keep the baseline attribute name `short_ssm` so existing baseline
+        # checkpoints remain loadable. The new boolean is `use_short_ssm`.
         self.long_mamba = MambaBlock(
             d_model=d_model,
             d_state=d_state,
@@ -74,28 +74,25 @@ class DSRecBlock(nn.Module):
         )
 
         if dual_interest:
-            if short_ssm:
-                if short_branch == "mamba":
-                    self.short_branch_module = MambaBlock(
-                        d_model=d_model,
-                        d_state=d_state,
-                        conv_width=conv_width,
-                        expansion=expansion,
-                        dropout=dropout,
-                    )
-                else:
-                    self.short_branch_module = ShortTermInterest(
-                        d_model=d_model,
-                        n_time_buckets=n_time_buckets,
-                        d_state=d_state,
-                        conv_width=conv_width,
-                        expansion=expansion,
-                        dropout=dropout,
-                    )
+            if short_ssm and short_branch == "time_aware_ssm":
+                self.short_ssm = ShortTermInterest(
+                    d_model=d_model,
+                    n_time_buckets=n_time_buckets,
+                    d_state=d_state,
+                    conv_width=conv_width,
+                    expansion=expansion,
+                    dropout=dropout,
+                )
+            elif short_ssm and short_branch == "mamba":
+                self.short_mamba = MambaBlock(
+                    d_model=d_model,
+                    d_state=d_state,
+                    conv_width=conv_width,
+                    expansion=expansion,
+                    dropout=dropout,
+                )
             else:
-                # no_short_ssm: keep the short representation as an identity
-                # branch so the ablation removes only the SSM transformation.
-                self.short_branch_module = nn.Identity()
+                self.short_identity = nn.Identity()
 
         self.long_norm = nn.LayerNorm(d_model)
         self.long_ffn = FeedForward(d_model, dropout)
@@ -118,17 +115,16 @@ class DSRecBlock(nn.Module):
             long_out = long_out + self.long_ffn(long_out)
             return long_out, short_x
 
-        if self.short_ssm:
-            if self.short_branch == "mamba":
-                short_out = self.short_branch_module(short_x, mask)
-            else:
-                short_out = self.short_branch_module(
-                    short_x,
-                    time_bucket_ids,
-                    mask,
-                )
+        if not self.use_short_ssm:
+            short_out = self.short_identity(short_x)
+        elif self.short_branch == "mamba":
+            short_out = self.short_mamba(short_x, mask)
         else:
-            short_out = self.short_branch_module(short_x)
+            short_out = self.short_ssm(
+                short_x,
+                time_bucket_ids,
+                mask,
+            )
 
         if self.cross_fusion:
             # Residual cross-connection. Detach prevents cross-branch
@@ -218,7 +214,6 @@ class DSRec(nn.Module):
         )
 
         output_input_dim = 2 * d_model if dual_interest else d_model
-
         self.output_mlp = nn.Sequential(
             nn.Linear(output_input_dim, d_model),
             nn.GELU(),
@@ -232,14 +227,8 @@ class DSRec(nn.Module):
         mask: torch.Tensor,
     ) -> torch.Tensor:
         x = self.item_embedding(item_ids)
-
         cumulative = torch.cumsum(x, dim=1)
-
-        counts = torch.cumsum(
-            mask.long(),
-            dim=1,
-        ) - mask.long()
-
+        counts = torch.cumsum(mask.long(), dim=1) - mask.long()
         previous_sum = cumulative - x
         denominator = counts.clamp_min(1).unsqueeze(-1)
         previous_mean = previous_sum / denominator
@@ -251,7 +240,6 @@ class DSRec(nn.Module):
             x,
             long_x,
         )
-
         long_x = long_x * mask.unsqueeze(-1)
         return self.input_dropout(long_x)
 
@@ -263,14 +251,8 @@ class DSRec(nn.Module):
     ) -> torch.Tensor:
         item_x = self.item_embedding(item_ids)
         item_x = self.short_item_projection(item_x)
-
         time_x = self.time_embedding(time_bucket_ids)
-
-        short_x = torch.cat(
-            [item_x, time_x],
-            dim=-1,
-        )
-
+        short_x = torch.cat([item_x, time_x], dim=-1)
         short_x = self.short_input_projection(short_x)
         return short_x * mask.unsqueeze(-1)
 
@@ -281,9 +263,6 @@ class DSRec(nn.Module):
         mask: torch.Tensor,
     ) -> torch.Tensor:
         long_x = self._long_term_embedding(item_ids, mask)
-
-        # Build the short branch even for no_dual_interest so the input API
-        # stays unchanged; the branch is ignored by the blocks in that mode.
         short_x = self._short_term_embedding(
             item_ids,
             time_bucket_ids,
@@ -297,13 +276,11 @@ class DSRec(nn.Module):
                 time_bucket_ids,
                 mask,
             )
-
             long_x = long_x * mask.unsqueeze(-1)
             short_x = short_x * mask.unsqueeze(-1)
 
         lengths = mask.long().sum(dim=1)
         last_idx = (lengths - 1).clamp_min(0)
-
         batch_idx = torch.arange(
             item_ids.size(0),
             device=item_ids.device,
@@ -313,15 +290,11 @@ class DSRec(nn.Module):
 
         if self.dual_interest:
             short_last = short_x[batch_idx, last_idx]
-            output_input = torch.cat(
-                [long_last, short_last],
-                dim=-1,
-            )
+            output_input = torch.cat([long_last, short_last], dim=-1)
         else:
             output_input = long_last
 
         output = self.output_mlp(output_input)
         logits = output @ self.item_embedding.weight.T
         logits[:, 0] = torch.finfo(logits.dtype).min
-
         return logits
