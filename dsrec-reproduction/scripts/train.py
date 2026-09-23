@@ -11,6 +11,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
+from src.config import Config, load_config
 from src.data.collate import collate_batch
 from src.data.dataset import DSRecDataset, Example
 from src.data.sequences import build_sequences
@@ -20,40 +21,31 @@ from src.models.dsrec import DSRec
 
 
 # ---------------------------------------------------------------------
-# Paths
+# Paths / built-in defaults
 # ---------------------------------------------------------------------
 
-PROCESSED_DIR = Path("data/processed")
 CHECKPOINT_DIR = Path("data/checkpoints")
 
 
 # ---------------------------------------------------------------------
-# Data
+# Data / model / training defaults
 # ---------------------------------------------------------------------
 
-BATCH_SIZE = 32
-MAX_LEN = 50
+DEFAULT_CONFIG = Config()
 
+BATCH_SIZE = DEFAULT_CONFIG.training.batch_size
+MAX_LEN = DEFAULT_CONFIG.data.max_sequence_length
+N_TIME_BUCKETS = DEFAULT_CONFIG.data.n_time_buckets
 
-# ---------------------------------------------------------------------
-# Model
-# ---------------------------------------------------------------------
+D_MODEL = DEFAULT_CONFIG.model.d_model
+N_BLOCKS = DEFAULT_CONFIG.model.n_blocks
+D_STATE = DEFAULT_CONFIG.model.d_state
+CONV_WIDTH = DEFAULT_CONFIG.model.conv_width
+EXPANSION = DEFAULT_CONFIG.model.expansion
+DROPOUT = DEFAULT_CONFIG.model.dropout
 
-D_MODEL = 64
-N_TIME_BUCKETS = 10
-N_BLOCKS = 2
-D_STATE = 32
-CONV_WIDTH = 4
-EXPANSION = 2
-DROPOUT = 0.2
-
-
-# ---------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------
-
-LEARNING_RATE = 1e-3
-EPOCHS = 1
+LEARNING_RATE = DEFAULT_CONFIG.training.learning_rate
+EPOCHS = DEFAULT_CONFIG.training.epochs
 
 
 def build_examples(
@@ -82,10 +74,6 @@ def build_examples(
         if split is None:
             continue
 
-        # -------------------------------------------------------------
-        # Training examples
-        # -------------------------------------------------------------
-
         for example in generate_training_examples(
             split,
             mode="sliding_window",
@@ -97,10 +85,6 @@ def build_examples(
                     target=example.target,
                 )
             )
-
-        # -------------------------------------------------------------
-        # Validation example
-        # -------------------------------------------------------------
 
         val_examples.append(
             Example(
@@ -120,12 +104,7 @@ def evaluate(
     device: torch.device,
     max_batches: int | None = None,
 ) -> float:
-    """
-    Evaluate average validation loss.
-
-    If max_batches is provided, only that many validation batches
-    are evaluated. This is useful for controlled smoke tests.
-    """
+    """Evaluate average validation loss."""
 
     model.eval()
 
@@ -133,16 +112,8 @@ def evaluate(
     total_examples = 0
 
     with torch.no_grad():
-
-        for batch_idx, batch in enumerate(
-            loader,
-            start=1,
-        ):
-
-            if (
-                max_batches is not None
-                and batch_idx > max_batches
-            ):
+        for batch_idx, batch in enumerate(loader, start=1):
+            if max_batches is not None and batch_idx > max_batches:
                 break
 
             item_ids = batch["item_ids"].to(device)
@@ -150,19 +121,10 @@ def evaluate(
             mask = batch["mask"].to(device)
             targets = batch["target"].to(device)
 
-            logits = model(
-                item_ids,
-                time_bucket_ids,
-                mask,
-            )
-
-            loss = criterion(
-                logits,
-                targets,
-            )
+            logits = model(item_ids, time_bucket_ids, mask)
+            loss = criterion(logits, targets)
 
             batch_size = targets.size(0)
-
             total_loss += loss.item() * batch_size
             total_examples += batch_size
 
@@ -187,10 +149,7 @@ def save_checkpoint(
 ) -> None:
     """Save model + optimizer state."""
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(
         {
@@ -205,20 +164,28 @@ def save_checkpoint(
 
 
 def main() -> None:
-
-    # -----------------------------------------------------------------
-    # CLI arguments
-    # -----------------------------------------------------------------
-
     parser = argparse.ArgumentParser(
         description="DSRec training + validation"
     )
 
     parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help=(
+            "Optional YAML configuration file. "
+            "If omitted, built-in defaults are used."
+        ),
+    )
+
+    parser.add_argument(
         "--epochs",
         type=int,
-        default=EPOCHS,
-        help=f"Number of epochs. Default: {EPOCHS}",
+        default=None,
+        help=(
+            "Number of epochs. "
+            "Overrides config value when provided."
+        ),
     )
 
     parser.add_argument(
@@ -243,229 +210,151 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.epochs < 1:
+    if args.epochs is not None and args.epochs < 1:
         parser.error("--epochs must be >= 1")
 
-    if (
-        args.max_train_batches is not None
-        and args.max_train_batches < 1
-    ):
+    if args.max_train_batches is not None and args.max_train_batches < 1:
         parser.error("--max-train-batches must be >= 1")
 
-    if (
-        args.max_val_batches is not None
-        and args.max_val_batches < 1
-    ):
+    if args.max_val_batches is not None and args.max_val_batches < 1:
         parser.error("--max-val-batches must be >= 1")
 
-    print("=== PHASE 9: TRAINING + VALIDATION ===")
+    config = load_config(args.config) if args.config else Config()
 
-    # -----------------------------------------------------------------
-    # Device
-    # -----------------------------------------------------------------
+    data_config = config.data
+    model_config = config.model
+    training_config = config.training
+
+    epochs = (
+        args.epochs
+        if args.epochs is not None
+        else int(training_config.epochs)
+    )
+
+    batch_size = int(training_config.batch_size)
+    max_len = int(data_config.max_sequence_length)
+    n_time_buckets = int(data_config.n_time_buckets)
+
+    d_model = int(model_config.d_model)
+    n_blocks = int(model_config.n_blocks)
+    d_state = int(model_config.d_state)
+    conv_width = int(model_config.conv_width)
+    expansion = int(model_config.expansion)
+    dropout = float(model_config.dropout)
+
+    learning_rate = float(training_config.learning_rate)
+    processed_dir = Path(data_config.processed_dir)
+
+    print("=== PHASE 9: TRAINING + VALIDATION ===")
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
     print(f"Device: {device}")
-
-    # -----------------------------------------------------------------
-    # Configuration
-    # -----------------------------------------------------------------
-
-    print(
-        "Epochs:",
-        args.epochs,
-    )
-
+    print("Config:", args.config or "built-in defaults")
+    print("Epochs:", epochs)
+    print("Batch size:", batch_size)
+    print("Max sequence length:", max_len)
+    print("Model dimension:", d_model)
+    print("Blocks:", n_blocks)
+    print("State dimension:", d_state)
+    print("Learning rate:", learning_rate)
     print(
         "Max train batches:",
-        (
-            args.max_train_batches
-            if args.max_train_batches is not None
-            else "ALL"
-        ),
+        args.max_train_batches if args.max_train_batches is not None else "ALL",
     )
-
     print(
         "Max validation batches:",
-        (
-            args.max_val_batches
-            if args.max_val_batches is not None
-            else "ALL"
-        ),
+        args.max_val_batches if args.max_val_batches is not None else "ALL",
     )
 
-    # -----------------------------------------------------------------
-    # Load interactions
-    # -----------------------------------------------------------------
+    interactions_path = processed_dir / "interactions.pkl"
 
-    interactions_path = PROCESSED_DIR / "interactions.pkl"
+    print(f"Loading interactions from: {interactions_path}")
 
-    print(
-        f"Loading interactions from: "
-        f"{interactions_path}"
-    )
+    df = pd.read_pickle(interactions_path)
 
-    df = pd.read_pickle(
-        interactions_path
-    )
+    print(f"Interactions: {len(df):,}")
 
-    print(
-        f"Interactions: {len(df):,}"
-    )
-
-    # -----------------------------------------------------------------
-    # Build examples
-    # -----------------------------------------------------------------
-
-    print(
-        "Building train/validation examples..."
-    )
+    print("Building train/validation examples...")
 
     train_examples, val_examples = build_examples(df)
 
-    print(
-        f"Training examples: "
-        f"{len(train_examples):,}"
-    )
-
-    print(
-        f"Validation examples: "
-        f"{len(val_examples):,}"
-    )
-
-    # -----------------------------------------------------------------
-    # Time bucketizer
-    # -----------------------------------------------------------------
+    print(f"Training examples: {len(train_examples):,}")
+    print(f"Validation examples: {len(val_examples):,}")
 
     bucketizer = load_time_bucketizer(
-        PROCESSED_DIR / "time_bucketizer.pkl"
+        processed_dir / "time_bucketizer.pkl"
     )
-
-    # -----------------------------------------------------------------
-    # Datasets
-    # -----------------------------------------------------------------
 
     train_dataset = DSRecDataset(
         examples=train_examples,
         bucketizer=bucketizer,
-        max_len=MAX_LEN,
+        max_len=max_len,
     )
 
     val_dataset = DSRecDataset(
         examples=val_examples,
         bucketizer=bucketizer,
-        max_len=MAX_LEN,
+        max_len=max_len,
     )
-
-    # -----------------------------------------------------------------
-    # DataLoaders
-    # -----------------------------------------------------------------
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_batch,
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=BATCH_SIZE,
+        batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_batch,
     )
 
-    print(
-        f"Training batches: "
-        f"{len(train_loader):,}"
-    )
+    print(f"Training batches: {len(train_loader):,}")
+    print(f"Validation batches: {len(val_loader):,}")
 
-    print(
-        f"Validation batches: "
-        f"{len(val_loader):,}"
-    )
-
-    # -----------------------------------------------------------------
-    # Model
-    # -----------------------------------------------------------------
-
-    n_items = int(
-        df["item_id"].max()
-    )
+    n_items = int(df["item_id"].max())
 
     model = DSRec(
         n_items=n_items,
-        d_model=D_MODEL,
-        n_time_buckets=N_TIME_BUCKETS,
-        n_blocks=N_BLOCKS,
-        d_state=D_STATE,
-        conv_width=CONV_WIDTH,
-        expansion=EXPANSION,
-        dropout=DROPOUT,
+        d_model=d_model,
+        n_time_buckets=n_time_buckets,
+        n_blocks=n_blocks,
+        d_state=d_state,
+        conv_width=conv_width,
+        expansion=expansion,
+        dropout=dropout,
     ).to(device)
 
-    parameter_count = sum(
-        p.numel()
-        for p in model.parameters()
-    )
+    parameter_count = sum(p.numel() for p in model.parameters())
 
-    print(
-        f"Items: {n_items}"
-    )
-
-    print(
-        f"Model parameters: "
-        f"{parameter_count:,}"
-    )
-
-    # -----------------------------------------------------------------
-    # Optimizer / loss
-    # -----------------------------------------------------------------
+    print(f"Items: {n_items}")
+    print(f"Model parameters: {parameter_count:,}")
 
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=LEARNING_RATE,
+        lr=learning_rate,
     )
 
     criterion = torch.nn.CrossEntropyLoss()
 
-    # -----------------------------------------------------------------
-    # Checkpoint tracking
-    # -----------------------------------------------------------------
-
     best_val_loss = float("inf")
 
-    CHECKPOINT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # -----------------------------------------------------------------
-    # Training
-    # -----------------------------------------------------------------
-
-    for epoch in range(
-        1,
-        args.epochs + 1,
-    ):
-
+    for epoch in range(1, epochs + 1):
         model.train()
 
         total_loss = 0.0
         total_examples = 0
 
-        print(
-            f"\nEpoch {epoch}/{args.epochs}"
-        )
+        print(f"\nEpoch {epoch}/{epochs}")
 
-        for batch_idx, batch in enumerate(
-            train_loader,
-            start=1,
-        ):
-
+        for batch_idx, batch in enumerate(train_loader, start=1):
             if (
                 args.max_train_batches is not None
                 and batch_idx > args.max_train_batches
@@ -473,44 +362,26 @@ def main() -> None:
                 break
 
             item_ids = batch["item_ids"].to(device)
-            time_bucket_ids = batch[
-                "time_bucket_ids"
-            ].to(device)
-
+            time_bucket_ids = batch["time_bucket_ids"].to(device)
             mask = batch["mask"].to(device)
             targets = batch["target"].to(device)
 
             optimizer.zero_grad()
 
-            logits = model(
-                item_ids,
-                time_bucket_ids,
-                mask,
-            )
-
-            loss = criterion(
-                logits,
-                targets,
-            )
+            logits = model(item_ids, time_bucket_ids, mask)
+            loss = criterion(logits, targets)
 
             if not torch.isfinite(loss):
                 raise RuntimeError(
-                    f"Non-finite training loss at "
-                    f"epoch={epoch}, batch={batch_idx}"
+                    f"Non-finite training loss at epoch={epoch}, batch={batch_idx}"
                 )
 
             loss.backward()
-
             optimizer.step()
 
-            batch_size = targets.size(0)
-
-            total_loss += (
-                loss.item()
-                * batch_size
-            )
-
-            total_examples += batch_size
+            current_batch_size = targets.size(0)
+            total_loss += loss.item() * current_batch_size
+            total_examples += current_batch_size
 
             if (
                 batch_idx == 1
@@ -520,72 +391,35 @@ def main() -> None:
                     and batch_idx == args.max_train_batches
                 )
             ):
-
-                running_loss = (
-                    total_loss
-                    / total_examples
-                )
-
+                running_loss = total_loss / total_examples
                 print(
-                    f"  batch "
-                    f"{batch_idx:,}/"
-                    f"{len(train_loader):,} "
-                    f"loss={loss.item():.4f} "
-                    f"avg={running_loss:.4f}"
+                    f"  batch {batch_idx:,}/{len(train_loader):,} "
+                    f"loss={loss.item():.4f} avg={running_loss:.4f}"
                 )
 
         if total_examples == 0:
             raise RuntimeError(
-                "Training processed zero examples. "
-                "Increase --max-train-batches."
+                "Training processed zero examples. Increase --max-train-batches."
             )
 
-        train_loss = (
-            total_loss
-            / total_examples
-        )
-
-        # -------------------------------------------------------------
-        # Validation
-        # -------------------------------------------------------------
+        train_loss = total_loss / total_examples
 
         val_loss = evaluate(
-    model=model,
-    loader=val_loader,
-    criterion=criterion,
-    device=device,
-    max_batches=args.max_val_batches,
-) 
-
-        if not torch.isfinite(
-            torch.tensor(val_loss)
-        ):
-            raise RuntimeError(
-                "Validation loss is non-finite."
-            )
-
-        print(
-            f"\nEpoch {epoch} complete"
+            model=model,
+            loader=val_loader,
+            criterion=criterion,
+            device=device,
+            max_batches=args.max_val_batches,
         )
 
-        print(
-            f"  train loss: "
-            f"{train_loss:.4f}"
-        )
+        if not torch.isfinite(torch.tensor(val_loss)):
+            raise RuntimeError("Validation loss is non-finite.")
 
-        print(
-            f"  val loss:   "
-            f"{val_loss:.4f}"
-        )
+        print(f"\nEpoch {epoch} complete")
+        print(f"  train loss: {train_loss:.4f}")
+        print(f"  val loss:   {val_loss:.4f}")
 
-        # -------------------------------------------------------------
-        # Last checkpoint
-        # -------------------------------------------------------------
-
-        last_path = (
-            CHECKPOINT_DIR
-            / "last.pt"
-        )
+        last_path = CHECKPOINT_DIR / "last.pt"
 
         save_checkpoint(
             model=model,
@@ -596,23 +430,12 @@ def main() -> None:
             path=last_path,
         )
 
-        print(
-            f"Saved checkpoint: "
-            f"{last_path}"
-        )
-
-        # -------------------------------------------------------------
-        # Best checkpoint
-        # -------------------------------------------------------------
+        print(f"Saved checkpoint: {last_path}")
 
         if val_loss < best_val_loss:
-
             best_val_loss = val_loss
 
-            best_path = (
-                CHECKPOINT_DIR
-                / "best.pt"
-            )
+            best_path = CHECKPOINT_DIR / "best.pt"
 
             save_checkpoint(
                 model=model,
@@ -623,19 +446,10 @@ def main() -> None:
                 path=best_path,
             )
 
-            print(
-                f"New best validation loss: "
-                f"{best_val_loss:.4f}"
-            )
+            print(f"New best validation loss: {best_val_loss:.4f}")
+            print(f"Saved best checkpoint: {best_path}")
 
-            print(
-                f"Saved best checkpoint: "
-                f"{best_path}"
-            )
-
-    print(
-        "\n=== PHASE 9 COMPLETE ==="
-    )
+    print("\n=== PHASE 9 COMPLETE ===")
 
 
 if __name__ == "__main__":
