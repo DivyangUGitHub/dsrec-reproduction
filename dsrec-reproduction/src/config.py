@@ -42,6 +42,7 @@ class TrainingConfig:
 @dataclass
 class Config:
     seed: int = 42
+    ablation: str | None = None
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
@@ -54,6 +55,7 @@ def load_config(path: str | Path) -> Config:
 
     return Config(
         seed=int(raw.get("seed", 42)),
+        ablation=raw.get("ablation"),
         data=DataConfig(
             **{
                 k: v
