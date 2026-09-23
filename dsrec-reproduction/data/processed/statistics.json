@@ -1,0 +1,8 @@
+{
+  "n_users": 6040,
+  "n_items": 3706,
+  "n_interactions": 1000209,
+  "avg_actions_per_user": 165.6,
+  "avg_actions_per_item": 269.9,
+  "sparsity_pct": 95.532
+}
