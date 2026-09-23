@@ -22,6 +22,12 @@ class ModelConfig:
     conv_width: int = 4
     expansion: int = 2
     dropout: float = 0.2
+    # Ablation switches. Defaults preserve the original DSRec behavior.
+    cross_fusion: bool = True
+    dual_interest: bool = True
+    short_ssm: bool = True
+    long_branch: str = "mamba"
+    short_branch: str = "time_aware_ssm"
 
 
 @dataclass
@@ -43,9 +49,30 @@ class Config:
 
 def load_config(path: str | Path) -> Config:
     raw: dict[str, Any] = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+
+    model_raw = raw.get("model", {})
+
     return Config(
         seed=int(raw.get("seed", 42)),
-        data=DataConfig(**{k: v for k, v in raw.get("data", {}).items() if k in DataConfig.__annotations__}),
-        model=ModelConfig(**{k: v for k, v in raw.get("model", {}).items() if k in ModelConfig.__annotations__}),
-        training=TrainingConfig(**{k: v for k, v in raw.get("training", {}).items() if k in TrainingConfig.__annotations__}),
+        data=DataConfig(
+            **{
+                k: v
+                for k, v in raw.get("data", {}).items()
+                if k in DataConfig.__annotations__
+            }
+        ),
+        model=ModelConfig(
+            **{
+                k: v
+                for k, v in model_raw.items()
+                if k in ModelConfig.__annotations__
+            }
+        ),
+        training=TrainingConfig(
+            **{
+                k: v
+                for k, v in raw.get("training", {}).items()
+                if k in TrainingConfig.__annotations__
+            }
+        ),
     )
