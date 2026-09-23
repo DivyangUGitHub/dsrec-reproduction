@@ -1,0 +1,5 @@
+base: configs/default.yaml
+ablation: dual_mamba
+model:
+  long_branch: mamba
+  short_branch: mamba
