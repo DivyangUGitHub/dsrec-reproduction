@@ -32,3 +32,11 @@ data/samples/*
 
 # Large model/data artifacts; publish through releases/artifacts instead
 data/checkpoints/*.pt
+
+# Python generated files
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
