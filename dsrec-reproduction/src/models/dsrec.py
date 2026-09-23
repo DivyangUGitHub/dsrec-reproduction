@@ -1,12 +1,12 @@
 """
 DSRec main dual-interest model.
 
-Phase 8:
-- Long-term interest: historical aggregation + Mamba
-- Short-term interest: item/time embeddings + time-aware SSM
-- Residual cross-SSM fusion
-- FFN + LayerNorm + dropout
-- Last valid position -> MLP -> item embedding dot product
+Supports the baseline dual-interest architecture plus the four configured
+ablation modes used by the reproduction experiments:
+- no_cross_fusion
+- no_dual_interest
+- no_short_ssm
+- dual_mamba
 """
 from __future__ import annotations
 
@@ -36,12 +36,7 @@ class FeedForward(nn.Module):
 
 
 class DSRecBlock(nn.Module):
-    """
-    One residual-coupled dual-SSM block.
-
-    The paper specifies that each branch receives the detached output
-    of the other branch as an auxiliary residual connection.
-    """
+    """One configurable dual-interest SSM block."""
 
     def __init__(
         self,
@@ -51,8 +46,24 @@ class DSRecBlock(nn.Module):
         conv_width: int = 4,
         expansion: int = 2,
         dropout: float = 0.2,
+        cross_fusion: bool = True,
+        dual_interest: bool = True,
+        short_ssm: bool = True,
+        long_branch: str = "mamba",
+        short_branch: str = "time_aware_ssm",
     ):
         super().__init__()
+
+        if long_branch != "mamba":
+            raise ValueError(f"Unsupported long_branch: {long_branch}")
+
+        if short_branch not in {"time_aware_ssm", "mamba"}:
+            raise ValueError(f"Unsupported short_branch: {short_branch}")
+
+        self.cross_fusion = cross_fusion
+        self.dual_interest = dual_interest
+        self.short_ssm = short_ssm
+        self.short_branch = short_branch
 
         self.long_mamba = MambaBlock(
             d_model=d_model,
@@ -62,20 +73,36 @@ class DSRecBlock(nn.Module):
             dropout=dropout,
         )
 
-        self.short_ssm = ShortTermInterest(
-            d_model=d_model,
-            n_time_buckets=n_time_buckets,
-            d_state=d_state,
-            conv_width=conv_width,
-            expansion=expansion,
-            dropout=dropout,
-        )
+        if dual_interest:
+            if short_ssm:
+                if short_branch == "mamba":
+                    self.short_branch_module = MambaBlock(
+                        d_model=d_model,
+                        d_state=d_state,
+                        conv_width=conv_width,
+                        expansion=expansion,
+                        dropout=dropout,
+                    )
+                else:
+                    self.short_branch_module = ShortTermInterest(
+                        d_model=d_model,
+                        n_time_buckets=n_time_buckets,
+                        d_state=d_state,
+                        conv_width=conv_width,
+                        expansion=expansion,
+                        dropout=dropout,
+                    )
+            else:
+                # no_short_ssm: keep the short representation as an identity
+                # branch so the ablation removes only the SSM transformation.
+                self.short_branch_module = nn.Identity()
 
         self.long_norm = nn.LayerNorm(d_model)
-        self.short_norm = nn.LayerNorm(d_model)
-
         self.long_ffn = FeedForward(d_model, dropout)
-        self.short_ffn = FeedForward(d_model, dropout)
+
+        if dual_interest:
+            self.short_norm = nn.LayerNorm(d_model)
+            self.short_ffn = FeedForward(d_model, dropout)
 
     def forward(
         self,
@@ -84,19 +111,30 @@ class DSRecBlock(nn.Module):
         time_bucket_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-
         long_out = self.long_mamba(long_x, mask)
 
-        short_out = self.short_ssm(
-            short_x,
-            time_bucket_ids,
-            mask,
-        )
+        if not self.dual_interest:
+            long_out = self.long_norm(long_out)
+            long_out = long_out + self.long_ffn(long_out)
+            return long_out, short_x
 
-        # Residual cross-connection.
-        # Detach prevents cross-branch gradient entanglement.
-        long_out = long_out + short_out.detach()
-        short_out = short_out + long_out.detach()
+        if self.short_ssm:
+            if self.short_branch == "mamba":
+                short_out = self.short_branch_module(short_x, mask)
+            else:
+                short_out = self.short_branch_module(
+                    short_x,
+                    time_bucket_ids,
+                    mask,
+                )
+        else:
+            short_out = self.short_branch_module(short_x)
+
+        if self.cross_fusion:
+            # Residual cross-connection. Detach prevents cross-branch
+            # gradient entanglement, matching the baseline implementation.
+            long_out = long_out + short_out.detach()
+            short_out = short_out + long_out.detach()
 
         long_out = self.long_norm(long_out)
         short_out = self.short_norm(short_out)
@@ -108,19 +146,7 @@ class DSRecBlock(nn.Module):
 
 
 class DSRec(nn.Module):
-    """
-    Dual SSM Recommendation model.
-
-    Input:
-        item_ids:        [B, L]
-        time_bucket_ids: [B, L]
-        mask:            [B, L]
-
-    Output:
-        logits:          [B, n_items + 1]
-
-    ID 0 is PAD_ID and is masked from prediction.
-    """
+    """Dual SSM Recommendation model with configurable ablations."""
 
     def __init__(
         self,
@@ -132,20 +158,28 @@ class DSRec(nn.Module):
         conv_width: int = 4,
         expansion: int = 2,
         dropout: float = 0.2,
+        cross_fusion: bool = True,
+        dual_interest: bool = True,
+        short_ssm: bool = True,
+        long_branch: str = "mamba",
+        short_branch: str = "time_aware_ssm",
     ):
         super().__init__()
 
         self.n_items = n_items
         self.d_model = d_model
+        self.cross_fusion = cross_fusion
+        self.dual_interest = dual_interest
+        self.short_ssm = short_ssm
+        self.long_branch = long_branch
+        self.short_branch = short_branch
 
-        # +1 because internal item ID 0 is PAD_ID.
         self.item_embedding = nn.Embedding(
             n_items + 1,
             d_model,
             padding_idx=0,
         )
 
-        # Separate short-term projection.
         self.short_item_projection = nn.Linear(
             d_model,
             d_model,
@@ -173,14 +207,20 @@ class DSRec(nn.Module):
                     conv_width=conv_width,
                     expansion=expansion,
                     dropout=dropout,
+                    cross_fusion=cross_fusion,
+                    dual_interest=dual_interest,
+                    short_ssm=short_ssm,
+                    long_branch=long_branch,
+                    short_branch=short_branch,
                 )
                 for _ in range(n_blocks)
             ]
         )
 
-        # Eq. 15: concatenate final long/short representations.
+        output_input_dim = 2 * d_model if dual_interest else d_model
+
         self.output_mlp = nn.Sequential(
-            nn.Linear(2 * d_model, d_model),
+            nn.Linear(output_input_dim, d_model),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model, d_model),
@@ -191,34 +231,20 @@ class DSRec(nn.Module):
         item_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Eq. 5:
-
-            x_i^l = x_i + mean(x_1 ... x_{i-1})
-
-        For the first valid position, x_1^l = x_1.
-        """
-
         x = self.item_embedding(item_ids)
 
-        # Cumulative sum of previous embeddings.
         cumulative = torch.cumsum(x, dim=1)
 
-        # Number of previous valid positions.
         counts = torch.cumsum(
             mask.long(),
             dim=1,
         ) - mask.long()
 
         previous_sum = cumulative - x
-
         denominator = counts.clamp_min(1).unsqueeze(-1)
-
         previous_mean = previous_sum / denominator
-
         long_x = x + previous_mean
 
-        # First position has no previous history.
         first_position = counts == 0
         long_x = torch.where(
             first_position.unsqueeze(-1),
@@ -226,9 +252,7 @@ class DSRec(nn.Module):
             long_x,
         )
 
-        # Padding must not carry meaningful representation.
         long_x = long_x * mask.unsqueeze(-1)
-
         return self.input_dropout(long_x)
 
     def _short_term_embedding(
@@ -237,7 +261,6 @@ class DSRec(nn.Module):
         time_bucket_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> torch.Tensor:
-
         item_x = self.item_embedding(item_ids)
         item_x = self.short_item_projection(item_x)
 
@@ -249,10 +272,7 @@ class DSRec(nn.Module):
         )
 
         short_x = self.short_input_projection(short_x)
-
-        short_x = short_x * mask.unsqueeze(-1)
-
-        return short_x
+        return short_x * mask.unsqueeze(-1)
 
     def forward(
         self,
@@ -260,12 +280,10 @@ class DSRec(nn.Module):
         time_bucket_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> torch.Tensor:
+        long_x = self._long_term_embedding(item_ids, mask)
 
-        long_x = self._long_term_embedding(
-            item_ids,
-            mask,
-        )
-
+        # Build the short branch even for no_dual_interest so the input API
+        # stays unchanged; the branch is ignored by the blocks in that mode.
         short_x = self._short_term_embedding(
             item_ids,
             time_bucket_ids,
@@ -283,7 +301,6 @@ class DSRec(nn.Module):
             long_x = long_x * mask.unsqueeze(-1)
             short_x = short_x * mask.unsqueeze(-1)
 
-        # Find final valid position for every user.
         lengths = mask.long().sum(dim=1)
         last_idx = (lengths - 1).clamp_min(0)
 
@@ -292,28 +309,19 @@ class DSRec(nn.Module):
             device=item_ids.device,
         )
 
-        long_last = long_x[
-            batch_idx,
-            last_idx,
-        ]
+        long_last = long_x[batch_idx, last_idx]
 
-        short_last = short_x[
-            batch_idx,
-            last_idx,
-        ]
-
-        # Eq. 15.
-        output = self.output_mlp(
-            torch.cat(
+        if self.dual_interest:
+            short_last = short_x[batch_idx, last_idx]
+            output_input = torch.cat(
                 [long_last, short_last],
                 dim=-1,
             )
-        )
+        else:
+            output_input = long_last
 
-        # Eq. 16: output embedding dot item embedding matrix.
+        output = self.output_mlp(output_input)
         logits = output @ self.item_embedding.weight.T
-
-        # PAD_ID=0 must never be predicted.
         logits[:, 0] = torch.finfo(logits.dtype).min
 
         return logits
