@@ -1,0 +1,10 @@
+dataset: MovieLens-1M
+raw_dir: data/raw
+processed_dir: data/processed
+format: ratings.dat
+separator: '::'
+min_rating: 1.0
+max_rating: 5.0
+sequence:
+  max_length: 50
+  split: leave_one_out
