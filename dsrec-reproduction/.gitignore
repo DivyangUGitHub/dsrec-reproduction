@@ -23,7 +23,7 @@ artifacts/figures/*
 artifacts/tables/*
 
 # Raw/intermediate/sample data
- data/raw/*
+data/raw/*
 data/interim/*
 data/samples/*
 !data/raw/.gitkeep
