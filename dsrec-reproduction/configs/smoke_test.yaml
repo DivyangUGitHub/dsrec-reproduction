@@ -1,0 +1,18 @@
+seed: 42
+data:
+  processed_dir: data/processed
+  max_sequence_length: 20
+  n_time_buckets: 10
+model:
+  d_model: 32
+  n_blocks: 1
+  d_state: 8
+  conv_width: 3
+  expansion: 2
+  dropout: 0.1
+training:
+  batch_size: 8
+  epochs: 1
+  max_train_batches: 2
+  max_val_batches: 1
+  learning_rate: 0.001
