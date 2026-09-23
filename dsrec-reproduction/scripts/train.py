@@ -27,14 +27,12 @@ DEFAULT_CONFIG = Config()
 BATCH_SIZE = DEFAULT_CONFIG.training.batch_size
 MAX_LEN = DEFAULT_CONFIG.data.max_sequence_length
 N_TIME_BUCKETS = DEFAULT_CONFIG.data.n_time_buckets
-
 D_MODEL = DEFAULT_CONFIG.model.d_model
 N_BLOCKS = DEFAULT_CONFIG.model.n_blocks
 D_STATE = DEFAULT_CONFIG.model.d_state
 CONV_WIDTH = DEFAULT_CONFIG.model.conv_width
 EXPANSION = DEFAULT_CONFIG.model.expansion
 DROPOUT = DEFAULT_CONFIG.model.dropout
-
 LEARNING_RATE = DEFAULT_CONFIG.training.learning_rate
 EPOCHS = DEFAULT_CONFIG.training.epochs
 
@@ -43,7 +41,6 @@ def build_examples(
     df: pd.DataFrame,
 ) -> tuple[list[Example], list[Example]]:
     """Build sliding-window training examples and one validation example per user."""
-
     sequences = build_sequences(df)
     train_examples: list[Example] = []
     val_examples: list[Example] = []
@@ -84,7 +81,6 @@ def evaluate(
     max_batches: int | None = None,
 ) -> float:
     """Evaluate average validation loss."""
-
     model.eval()
     total_loss = 0.0
     total_examples = 0
@@ -127,7 +123,6 @@ def save_checkpoint(
     model_config: dict[str, object] | None = None,
 ) -> None:
     """Save model, optimizer state, metrics, and model configuration."""
-
     path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(
@@ -192,10 +187,8 @@ def main() -> None:
 
     if args.epochs is not None and args.epochs < 1:
         parser.error("--epochs must be >= 1")
-
     if args.max_train_batches is not None and args.max_train_batches < 1:
         parser.error("--max-train-batches must be >= 1")
-
     if args.max_val_batches is not None and args.max_val_batches < 1:
         parser.error("--max-val-batches must be >= 1")
 
@@ -214,7 +207,6 @@ def main() -> None:
     batch_size = int(training_config.batch_size)
     max_len = int(data_config.max_sequence_length)
     n_time_buckets = int(data_config.n_time_buckets)
-
     d_model = int(model_config.d_model)
     n_blocks = int(model_config.n_blocks)
     d_state = int(model_config.d_state)
@@ -230,6 +222,11 @@ def main() -> None:
 
     learning_rate = float(training_config.learning_rate)
     processed_dir = Path(data_config.processed_dir)
+    checkpoint_dir = (
+        Path("experiments/checkpoints") / str(config.ablation)
+        if config.ablation
+        else CHECKPOINT_DIR
+    )
 
     print("=== PHASE 9: TRAINING + VALIDATION ===")
 
@@ -239,6 +236,8 @@ def main() -> None:
 
     print(f"Device: {device}")
     print("Config:", args.config or "built-in defaults")
+    print("Ablation:", config.ablation or "baseline")
+    print("Checkpoint directory:", checkpoint_dir)
     print("Epochs:", epochs)
     print("Batch size:", batch_size)
     print("Max sequence length:", max_len)
@@ -280,7 +279,6 @@ def main() -> None:
         bucketizer=bucketizer,
         max_len=max_len,
     )
-
     val_dataset = DSRecDataset(
         examples=val_examples,
         bucketizer=bucketizer,
@@ -293,7 +291,6 @@ def main() -> None:
         shuffle=True,
         collate_fn=collate_batch,
     )
-
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -323,7 +320,6 @@ def main() -> None:
     ).to(device)
 
     parameter_count = sum(p.numel() for p in model.parameters())
-
     print(f"Items: {n_items}")
     print(f"Model parameters: {parameter_count:,}")
 
@@ -331,10 +327,9 @@ def main() -> None:
         model.parameters(),
         lr=learning_rate,
     )
-
     criterion = torch.nn.CrossEntropyLoss()
     best_val_loss = float("inf")
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_model_config = {
         "d_model": d_model,
@@ -371,7 +366,6 @@ def main() -> None:
             targets = batch["target"].to(device)
 
             optimizer.zero_grad()
-
             logits = model(item_ids, time_bucket_ids, mask)
             loss = criterion(logits, targets)
 
@@ -407,7 +401,6 @@ def main() -> None:
             )
 
         train_loss = total_loss / total_examples
-
         val_loss = evaluate(
             model=model,
             loader=val_loader,
@@ -423,8 +416,7 @@ def main() -> None:
         print(f"  train loss: {train_loss:.4f}")
         print(f"  val loss:   {val_loss:.4f}")
 
-        last_path = CHECKPOINT_DIR / "last.pt"
-
+        last_path = checkpoint_dir / "last.pt"
         save_checkpoint(
             model=model,
             optimizer=optimizer,
@@ -434,12 +426,11 @@ def main() -> None:
             path=last_path,
             model_config=checkpoint_model_config,
         )
-
         print(f"Saved checkpoint: {last_path}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            best_path = CHECKPOINT_DIR / "best.pt"
+            best_path = checkpoint_dir / "best.pt"
 
             save_checkpoint(
                 model=model,
