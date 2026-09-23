@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import pickle
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -11,20 +12,10 @@ from src.models.dsrec import DSRec
 
 
 class Predictor:
-    """Loads the trained DSRec checkpoint and produces top-k item scores.
+    """Load a trained DSRec checkpoint and produce deterministic top-k scores."""
 
-    This is intentionally deterministic at inference time: evaluation mode,
-    CPU/CUDA selected automatically, and no training-side state is mutated.
-    """
-
-    def __init__(
-        self,
-        checkpoint: Path,
-        interactions: Path,
-        time_bucketizer: Path,
-        user_mapping: Path,
-        max_len: int = 50,
-    ) -> None:
+    def __init__(self, checkpoint: Path, interactions: Path, time_bucketizer: Path,
+                 user_mapping: Path, max_len: int = 50) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_len = max_len
         self.interactions = pd.read_pickle(interactions)
@@ -35,16 +26,8 @@ class Predictor:
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
         state = ckpt["model_state_dict"]
         n_items = state["item_embedding.weight"].shape[0] - 1
-        self.model = DSRec(
-            n_items=n_items,
-            d_model=64,
-            n_time_buckets=10,
-            n_blocks=2,
-            d_state=32,
-            conv_width=4,
-            expansion=2,
-            dropout=0.2,
-        ).to(self.device)
+        self.model = DSRec(n_items=n_items, d_model=64, n_time_buckets=10,
+                           n_blocks=2, d_state=32, conv_width=4, expansion=2, dropout=0.2).to(self.device)
         self.model.load_state_dict(state)
         self.model.eval()
         self.model_version = f"epoch-{ckpt.get('epoch', 'unknown')}"
@@ -61,13 +44,15 @@ class Predictor:
         if hist.empty:
             raise KeyError(f"User has no interaction history: {raw_user_id}")
 
-        item_ids = hist["item_id"].tolist()
-        timestamps = hist["timestamp"].tolist()
-        gaps = [0] + [max(0, int(timestamps[i] - timestamps[i - 1])) for i in range(1, len(timestamps))]
-        time_bucket_ids = [int(self.bucketizer.transform(g)) for g in gaps]
+        item_ids = hist["item_id"].to_numpy(dtype=np.int64)
+        timestamps = hist["timestamp"].to_numpy(dtype=np.int64)
+        gaps = np.zeros_like(timestamps)
+        if len(timestamps) > 1:
+            gaps[1:] = np.maximum(np.diff(timestamps), 0)
+        time_bucket_ids = self.bucketizer.transform(gaps).astype(np.int64)
 
-        ids = torch.tensor([item_ids], dtype=torch.long, device=self.device)
-        tb = torch.tensor([time_bucket_ids], dtype=torch.long, device=self.device)
+        ids = torch.from_numpy(item_ids[None, :]).to(self.device)
+        tb = torch.from_numpy(time_bucket_ids[None, :]).to(self.device)
         mask = torch.ones_like(ids, dtype=torch.bool)
         with torch.inference_mode():
             logits = self.model(ids, tb, mask)[0]
