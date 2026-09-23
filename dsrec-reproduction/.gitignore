@@ -1,5 +1,6 @@
 __pycache__/
 *.py[cod]
+*.egg-info/
 .venv/
 venv/
 .env
@@ -11,6 +12,8 @@ htmlcov/
 *.log
 .DS_Store
 .vscode/
+
+# Generated experiment outputs
 experiments/logs/*
 experiments/checkpoints/*
 experiments/results/*
@@ -18,8 +21,14 @@ experiments/plots/*
 artifacts/reports/*
 artifacts/figures/*
 artifacts/tables/*
-data/raw/*
+
+# Raw/intermediate/sample data
+ data/raw/*
 data/interim/*
 data/samples/*
-# Large generated artifacts should not be committed by default.
+!data/raw/.gitkeep
+!data/interim/.gitkeep
+!data/samples/.gitkeep
+
+# Large model/data artifacts; publish through releases/artifacts instead
 data/checkpoints/*.pt
