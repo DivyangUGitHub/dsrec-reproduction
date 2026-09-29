@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import pickle
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,8 +14,14 @@ from src.models.dsrec import DSRec
 class Predictor:
     """Load a trained DSRec checkpoint and produce deterministic top-k scores."""
 
-    def __init__(self, checkpoint: Path, interactions: Path, time_bucketizer: Path,
-                 user_mapping: Path, max_len: int = 50) -> None:
+    def __init__(
+        self,
+        checkpoint: Path,
+        interactions: Path,
+        time_bucketizer: Path,
+        user_mapping: Path,
+        max_len: int = 50,
+    ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_len = max_len
         self.interactions = pd.read_pickle(interactions)
@@ -26,8 +32,16 @@ class Predictor:
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
         state = ckpt["model_state_dict"]
         n_items = state["item_embedding.weight"].shape[0] - 1
-        self.model = DSRec(n_items=n_items, d_model=64, n_time_buckets=10,
-                           n_blocks=2, d_state=32, conv_width=4, expansion=2, dropout=0.2).to(self.device)
+        self.model = DSRec(
+            n_items=n_items,
+            d_model=64,
+            n_time_buckets=10,
+            n_blocks=2,
+            d_state=32,
+            conv_width=4,
+            expansion=2,
+            dropout=0.2,
+        ).to(self.device)
         self.model.load_state_dict(state)
         self.model.eval()
         self.model_version = f"epoch-{ckpt.get('epoch', 'unknown')}"
@@ -58,4 +72,8 @@ class Predictor:
             logits = self.model(ids, tb, mask)[0]
             values, indices = torch.topk(logits, k=min(top_k, logits.numel() - 1))
 
-        return [(int(i), float(v)) for i, v in zip(indices.tolist(), values.tolist()) if i != 0]
+        return [
+            (int(i), float(v))
+            for i, v in zip(indices.tolist(), values.tolist(), strict=True)
+            if i != 0
+        ]

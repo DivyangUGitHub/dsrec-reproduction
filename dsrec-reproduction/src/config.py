@@ -57,18 +57,10 @@ def load_config(path: str | Path) -> Config:
         seed=int(raw.get("seed", 42)),
         ablation=raw.get("ablation"),
         data=DataConfig(
-            **{
-                k: v
-                for k, v in raw.get("data", {}).items()
-                if k in DataConfig.__annotations__
-            }
+            **{k: v for k, v in raw.get("data", {}).items() if k in DataConfig.__annotations__}
         ),
         model=ModelConfig(
-            **{
-                k: v
-                for k, v in model_raw.items()
-                if k in ModelConfig.__annotations__
-            }
+            **{k: v for k, v in model_raw.items() if k in ModelConfig.__annotations__}
         ),
         training=TrainingConfig(
             **{

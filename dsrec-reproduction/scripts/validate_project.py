@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import pickle
+from pathlib import Path
 
 import pandas as pd
 import torch
@@ -38,11 +38,15 @@ def main() -> None:
     if len(user_mapping) == 0 or len(item_mapping) == 0:
         raise SystemExit("INVALID: empty ID mapping")
 
-    checkpoint = torch.load(ROOT / "data/checkpoints/best.pt", map_location="cpu", weights_only=False)
+    checkpoint = torch.load(
+        ROOT / "data/checkpoints/best.pt", map_location="cpu", weights_only=False
+    )
     for key in ("epoch", "model_state_dict", "optimizer_state_dict", "train_loss", "val_loss"):
         if key not in checkpoint:
             raise SystemExit(f"INVALID: checkpoint missing {key}")
-    if not torch.isfinite(torch.tensor(float(checkpoint["train_loss"]))) or not torch.isfinite(torch.tensor(float(checkpoint["val_loss"]))):
+    if not torch.isfinite(torch.tensor(float(checkpoint["train_loss"]))) or not torch.isfinite(
+        torch.tensor(float(checkpoint["val_loss"]))
+    ):
         raise SystemExit("INVALID: non-finite checkpoint loss")
 
     print("DSRec project validation: PASS")

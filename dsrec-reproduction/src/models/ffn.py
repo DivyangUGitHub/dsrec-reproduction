@@ -8,8 +8,11 @@ class FeedForward(nn.Module):
         super().__init__()
         hidden = expansion * d_model
         self.net = nn.Sequential(
-            nn.Linear(d_model, hidden), nn.GELU(), nn.Dropout(dropout),
-            nn.Linear(hidden, d_model), nn.Dropout(dropout),
+            nn.Linear(d_model, hidden),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden, d_model),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):

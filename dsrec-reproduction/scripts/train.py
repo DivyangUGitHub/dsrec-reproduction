@@ -19,7 +19,6 @@ from src.data.split import generate_training_examples, leave_one_out_split
 from src.data.time_features import load_time_bucketizer
 from src.models.dsrec import DSRec
 
-
 CHECKPOINT_DIR = Path("data/checkpoints")
 
 DEFAULT_CONFIG = Config()
@@ -139,48 +138,34 @@ def save_checkpoint(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="DSRec training + validation"
-    )
+    parser = argparse.ArgumentParser(description="DSRec training + validation")
 
     parser.add_argument(
         "--config",
         type=str,
         default=None,
-        help=(
-            "Optional YAML configuration file. "
-            "If omitted, built-in defaults are used."
-        ),
+        help=("Optional YAML configuration file. If omitted, built-in defaults are used."),
     )
 
     parser.add_argument(
         "--epochs",
         type=int,
         default=None,
-        help=(
-            "Number of epochs. "
-            "Overrides config value when provided."
-        ),
+        help=("Number of epochs. Overrides config value when provided."),
     )
 
     parser.add_argument(
         "--max-train-batches",
         type=int,
         default=None,
-        help=(
-            "Maximum training batches per epoch. "
-            "Default: all training batches."
-        ),
+        help=("Maximum training batches per epoch. Default: all training batches."),
     )
 
     parser.add_argument(
         "--max-val-batches",
         type=int,
         default=None,
-        help=(
-            "Maximum validation batches. "
-            "Default: all validation batches."
-        ),
+        help=("Maximum validation batches. Default: all validation batches."),
     )
 
     args = parser.parse_args()
@@ -198,11 +183,7 @@ def main() -> None:
     model_config = config.model
     training_config = config.training
 
-    epochs = (
-        args.epochs
-        if args.epochs is not None
-        else int(training_config.epochs)
-    )
+    epochs = args.epochs if args.epochs is not None else int(training_config.epochs)
 
     batch_size = int(training_config.batch_size)
     max_len = int(data_config.max_sequence_length)
@@ -230,9 +211,7 @@ def main() -> None:
 
     print("=== PHASE 9: TRAINING + VALIDATION ===")
 
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {device}")
     print("Config:", args.config or "built-in defaults")
@@ -270,9 +249,7 @@ def main() -> None:
     print(f"Training examples: {len(train_examples):,}")
     print(f"Validation examples: {len(val_examples):,}")
 
-    bucketizer = load_time_bucketizer(
-        processed_dir / "time_bucketizer.pkl"
-    )
+    bucketizer = load_time_bucketizer(processed_dir / "time_bucketizer.pkl")
 
     train_dataset = DSRecDataset(
         examples=train_examples,
@@ -354,10 +331,7 @@ def main() -> None:
         print(f"\nEpoch {epoch}/{epochs}")
 
         for batch_idx, batch in enumerate(train_loader, start=1):
-            if (
-                args.max_train_batches is not None
-                and batch_idx > args.max_train_batches
-            ):
+            if args.max_train_batches is not None and batch_idx > args.max_train_batches:
                 break
 
             item_ids = batch["item_ids"].to(device)
@@ -370,9 +344,7 @@ def main() -> None:
             loss = criterion(logits, targets)
 
             if not torch.isfinite(loss):
-                raise RuntimeError(
-                    f"Non-finite training loss at epoch={epoch}, batch={batch_idx}"
-                )
+                raise RuntimeError(f"Non-finite training loss at epoch={epoch}, batch={batch_idx}")
 
             loss.backward()
             optimizer.step()
@@ -384,10 +356,7 @@ def main() -> None:
             if (
                 batch_idx == 1
                 or batch_idx % 100 == 0
-                or (
-                    args.max_train_batches is not None
-                    and batch_idx == args.max_train_batches
-                )
+                or (args.max_train_batches is not None and batch_idx == args.max_train_batches)
             ):
                 running_loss = total_loss / total_examples
                 print(
@@ -396,9 +365,7 @@ def main() -> None:
                 )
 
         if total_examples == 0:
-            raise RuntimeError(
-                "Training processed zero examples. Increase --max-train-batches."
-            )
+            raise RuntimeError("Training processed zero examples. Increase --max-train-batches.")
 
         train_loss = total_loss / total_examples
         val_loss = evaluate(

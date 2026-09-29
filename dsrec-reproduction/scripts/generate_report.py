@@ -23,7 +23,8 @@ def main():
         "## Validation",
         "- Project validation: run `python scripts/validate_project.py`.",
         "- Unit/integration tests: run `python -m pytest -q`.",
-        "- Training/evaluation metrics must be recorded from the actual run; this script does not invent results.",
+        "- Training/evaluation metrics must be recorded from the actual run; "
+        "this script does not invent results.",
     ]
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)

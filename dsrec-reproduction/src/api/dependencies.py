@@ -14,7 +14,8 @@ def get_recommender() -> Recommender:
     predictor = Predictor(
         checkpoint=root / os.getenv("DSREC_CHECKPOINT", "data/checkpoints/best.pt"),
         interactions=root / os.getenv("DSREC_INTERACTIONS", "data/processed/interactions.pkl"),
-        time_bucketizer=root / os.getenv("DSREC_TIME_BUCKETIZER", "data/processed/time_bucketizer.pkl"),
+        time_bucketizer=root
+        / os.getenv("DSREC_TIME_BUCKETIZER", "data/processed/time_bucketizer.pkl"),
         user_mapping=root / os.getenv("DSREC_USER_MAPPING", "data/processed/user_mapping.pkl"),
         max_len=int(os.getenv("DSREC_MAX_LEN", "50")),
     )

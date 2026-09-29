@@ -18,7 +18,6 @@ from src.data.time_features import load_time_bucketizer
 from src.evaluation import evaluate_ranking
 from src.models.dsrec import DSRec
 
-
 DEFAULT_PROCESSED_DIR = Path("data/processed")
 DEFAULT_CHECKPOINT_DIR = Path("data/checkpoints")
 
@@ -82,15 +81,16 @@ def load_model(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="DSRec ranking evaluation"
-    )
+    parser = argparse.ArgumentParser(description="DSRec ranking evaluation")
 
     parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
-        help="Checkpoint to evaluate. Defaults to the baseline best checkpoint or the configured ablation checkpoint.",
+        help=(
+            "Checkpoint to evaluate. Defaults to the baseline best checkpoint "
+            "or the configured ablation checkpoint."
+        ),
     )
 
     parser.add_argument(
@@ -118,11 +118,7 @@ def main() -> None:
     if args.checkpoint is not None:
         checkpoint_path = args.checkpoint
     elif config.ablation:
-        checkpoint_path = (
-            Path("experiments/checkpoints")
-            / str(config.ablation)
-            / "best.pt"
-        )
+        checkpoint_path = Path("experiments/checkpoints") / str(config.ablation) / "best.pt"
     else:
         checkpoint_path = DEFAULT_CHECKPOINT_DIR / "best.pt"
 
@@ -131,18 +127,14 @@ def main() -> None:
 
     print("=== PHASE 10: EVALUATION ===")
 
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Device: {device}")
     print("Config:", args.config or "built-in defaults")
     print(f"Checkpoint: {checkpoint_path}")
 
     if not checkpoint_path.exists():
-        raise FileNotFoundError(
-            f"Checkpoint not found: {checkpoint_path}"
-        )
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
     interactions_path = processed_dir / "interactions.pkl"
     print(f"Loading interactions from: {interactions_path}")
@@ -154,9 +146,7 @@ def main() -> None:
     val_examples = build_validation_examples(df)
     print(f"Validation examples: {len(val_examples):,}")
 
-    bucketizer = load_time_bucketizer(
-        processed_dir / "time_bucketizer.pkl"
-    )
+    bucketizer = load_time_bucketizer(processed_dir / "time_bucketizer.pkl")
 
     dataset = DSRecDataset(
         examples=val_examples,
@@ -218,9 +208,7 @@ def main() -> None:
             all_targets.append(targets.cpu())
 
             if batch_idx == 1 or batch_idx % 50 == 0:
-                print(
-                    f"  evaluated batch {batch_idx:,}/{len(loader):,}"
-                )
+                print(f"  evaluated batch {batch_idx:,}/{len(loader):,}")
 
     if not all_logits:
         raise RuntimeError("No validation batches were evaluated.")

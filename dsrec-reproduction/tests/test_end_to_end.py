@@ -1,7 +1,7 @@
 import torch
 
-from src.models.dsrec import DSRec
 from src.evaluation.evaluator import evaluate_batch
+from src.models.dsrec import DSRec
 
 
 def test_end_to_end_forward_and_metrics():

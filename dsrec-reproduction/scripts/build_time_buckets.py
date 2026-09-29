@@ -1,7 +1,7 @@
 from pathlib import Path
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from src.data.sequences import build_sequences
 from src.data.split import leave_one_out_split
@@ -15,9 +15,7 @@ def main():
     interactions_path = processed_dir / "interactions.pkl"
 
     if not interactions_path.exists():
-        raise FileNotFoundError(
-            f"Processed interactions not found: {interactions_path}"
-        )
+        raise FileNotFoundError(f"Processed interactions not found: {interactions_path}")
 
     print(f"Loading interactions from: {interactions_path}")
     df = pd.read_pickle(interactions_path)

@@ -42,7 +42,11 @@ class Trainer:
         for step, batch in enumerate(loader):
             if max_batches is not None and step >= max_batches:
                 break
-            logits = self.model(batch["item_ids"].to(self.device), batch["time_bucket_ids"].to(self.device), batch["mask"].to(self.device))
+            logits = self.model(
+                batch["item_ids"].to(self.device),
+                batch["time_bucket_ids"].to(self.device),
+                batch["mask"].to(self.device),
+            )
             loss = cross_entropy_loss(logits, batch["target"].to(self.device))
             total += float(loss)
             count += 1

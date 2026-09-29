@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
-torch = pytest.importorskip("torch")  # this whole file is skipped, not failed, if torch isn't installed
+torch = pytest.importorskip(
+    "torch"
+)  # this whole file is skipped, not failed, if torch isn't installed
 
 from src.data.collate import collate_batch  # noqa: E402
 from src.data.dataset import PAD_ID, DSRecDataset, Example  # noqa: E402

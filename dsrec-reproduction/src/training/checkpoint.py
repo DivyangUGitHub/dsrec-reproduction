@@ -5,7 +5,9 @@ from pathlib import Path
 import torch
 
 
-def save_checkpoint(path: str | Path, model, optimizer=None, epoch: int = 0, metrics: dict | None = None) -> None:
+def save_checkpoint(
+    path: str | Path, model, optimizer=None, epoch: int = 0, metrics: dict | None = None
+) -> None:
     payload = {"model": model.state_dict(), "epoch": epoch, "metrics": metrics or {}}
     if optimizer is not None:
         payload["optimizer"] = optimizer.state_dict()

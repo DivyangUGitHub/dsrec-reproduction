@@ -110,9 +110,7 @@ class MambaBlock(nn.Module):
             # Discretized state update.
             decay = torch.exp(delta.unsqueeze(-1) * a)
 
-            state = decay * state + (
-                delta.unsqueeze(-1) * xt.unsqueeze(-1) * b_t.unsqueeze(1)
-            )
+            state = decay * state + (delta.unsqueeze(-1) * xt.unsqueeze(-1) * b_t.unsqueeze(1))
 
             # Read state through C.
             yt = (state * c_t.unsqueeze(1)).sum(dim=-1)
@@ -138,9 +136,7 @@ class MambaBlock(nn.Module):
             [B, L, D]
         """
         if x.ndim != 3:
-            raise ValueError(
-                f"MambaBlock expected [B, L, D], got {tuple(x.shape)}"
-            )
+            raise ValueError(f"MambaBlock expected [B, L, D], got {tuple(x.shape)}")
 
         residual = x
 
@@ -175,8 +171,7 @@ class MambaBlock(nn.Module):
         if mask is not None:
             if mask.shape != x.shape[:2]:
                 raise ValueError(
-                    f"mask must have shape {tuple(x.shape[:2])}, "
-                    f"got {tuple(mask.shape)}"
+                    f"mask must have shape {tuple(x.shape[:2])}, got {tuple(mask.shape)}"
                 )
 
             output = output * mask.unsqueeze(-1).to(output.dtype)

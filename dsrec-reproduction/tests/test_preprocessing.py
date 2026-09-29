@@ -38,14 +38,12 @@ def test_remap_ids_reserves_zero_and_is_contiguous():
     df = sort_chronologically(_toy_df())
     out, user_map, item_map = remap_ids(df)
 
-  
     assert 0 not in user_map.internal_to_raw
     assert 0 not in item_map.internal_to_raw
 
     assert sorted(user_map.internal_to_raw.keys()) == list(range(1, len(user_map) + 1))
     assert sorted(item_map.internal_to_raw.keys()) == list(range(1, len(item_map) + 1))
 
-    
     for internal, raw in user_map.internal_to_raw.items():
         assert user_map.raw_to_internal[raw] == internal
 
@@ -53,7 +51,7 @@ def test_remap_ids_reserves_zero_and_is_contiguous():
 def test_remap_ids_is_applied_to_the_dataframe():
     df = sort_chronologically(_toy_df())
     out, user_map, item_map = remap_ids(df)
-    
+
     raw_users_recovered = out["user_id"].map(user_map.internal_to_raw)
     assert list(raw_users_recovered) == list(df["user_id"])
 

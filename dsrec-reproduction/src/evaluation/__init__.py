@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import torch
 
-from .metrics import hit_rate_at_k, ndcg_at_k, recall_at_k
 from .evaluator import evaluate_batch
+from .metrics import hit_rate_at_k, ndcg_at_k, recall_at_k
 
 
 def topk_predictions(logits: torch.Tensor, k: int) -> torch.Tensor:

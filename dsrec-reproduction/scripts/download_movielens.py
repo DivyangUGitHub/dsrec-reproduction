@@ -14,6 +14,7 @@ NOTE: this repo's sandbox network allowlist does not include
 files.grouplens.org, so this script has not been executed end-to-end here
 — see the Phase 0 final report for what was and wasn't run.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -65,7 +66,9 @@ def main() -> None:
             "sandbox's network [unverified unless you supply it]."
         ),
     )
-    parser.add_argument("--force", action="store_true", help="Redo download/extraction if it already exists.")
+    parser.add_argument(
+        "--force", action="store_true", help="Redo download/extraction if it already exists."
+    )
     args = parser.parse_args()
 
     args.raw_dir.mkdir(parents=True, exist_ok=True)

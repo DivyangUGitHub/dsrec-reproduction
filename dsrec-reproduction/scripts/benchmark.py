@@ -27,7 +27,10 @@ def main():
         for _ in range(args.steps):
             model(item_ids, times, mask)
         elapsed = time.perf_counter() - start
-    print(f"device=cpu | steps={args.steps} | elapsed={elapsed:.3f}s | batches/s={args.steps/elapsed:.2f}")
+    print(
+        f"device=cpu | steps={args.steps} | elapsed={elapsed:.3f}s | "
+        f"batches/s={args.steps / elapsed:.2f}"
+    )
 
 
 if __name__ == "__main__":

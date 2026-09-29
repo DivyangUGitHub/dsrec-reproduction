@@ -73,19 +73,13 @@ class ShortTermInterest(nn.Module):
             short-term representations [B, L, D]
         """
         if item_embeddings.ndim != 3:
-            raise ValueError(
-                "item_embeddings must have shape [B, L, D]"
-            )
+            raise ValueError("item_embeddings must have shape [B, L, D]")
 
         if time_bucket_ids.shape != item_embeddings.shape[:2]:
-            raise ValueError(
-                "time_bucket_ids must have shape [B, L]"
-            )
+            raise ValueError("time_bucket_ids must have shape [B, L]")
 
         if mask.shape != item_embeddings.shape[:2]:
-            raise ValueError(
-                "mask must have shape [B, L]"
-            )
+            raise ValueError("mask must have shape [B, L]")
 
         # Learned time-interval representation.
         time_emb = self.time_embedding(time_bucket_ids)
@@ -117,10 +111,7 @@ class ShortTermInterest(nn.Module):
         )
 
         for t in range(item_embeddings.size(1)):
-            current = (
-                gate[:, t, :] * ssm_output[:, t, :]
-                + (1.0 - gate[:, t, :]) * previous
-            )
+            current = gate[:, t, :] * ssm_output[:, t, :] + (1.0 - gate[:, t, :]) * previous
 
             current_mask = mask[:, t].unsqueeze(-1)
 

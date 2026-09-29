@@ -7,9 +7,7 @@ from src.data.preprocessing import run_preprocessing
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Preprocess MovieLens-1M for DSRec."
-    )
+    parser = argparse.ArgumentParser(description="Preprocess MovieLens-1M for DSRec.")
 
     parser.add_argument(
         "--raw-dir",
@@ -30,9 +28,7 @@ def main():
     ratings_path = args.raw_dir / "ratings.dat"
 
     if not ratings_path.exists():
-        raise FileNotFoundError(
-            f"ratings.dat not found at: {ratings_path}"
-        )
+        raise FileNotFoundError(f"ratings.dat not found at: {ratings_path}")
 
     print(f"Loading ratings from: {ratings_path}")
     print(f"Writing processed data to: {args.out_dir}")
