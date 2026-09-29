@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY frontend ./frontend
 COPY data/processed ./data/processed
 COPY data/checkpoints ./data/checkpoints
 
