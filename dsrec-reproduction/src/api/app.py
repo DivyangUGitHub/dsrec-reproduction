@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from src.api.routes import router
 
@@ -10,3 +11,4 @@ app = FastAPI(
     description="Inference service for the DSRec sequential recommender.",
 )
 app.include_router(router, prefix="/v1")
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
