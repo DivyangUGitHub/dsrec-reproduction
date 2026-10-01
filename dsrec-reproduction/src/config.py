@@ -28,15 +28,18 @@ class ModelConfig:
     short_ssm: bool = True
     long_branch: str = "mamba"
     short_branch: str = "time_aware_ssm"
+    # "torch" is portable; "mamba_ssm" uses the official Mamba implementation.
+    ssm_backend: str = "torch"
 
 
 @dataclass
 class TrainingConfig:
     batch_size: int = 32
+    validation_batch_size: int = 32
     epochs: int = 1
     learning_rate: float = 1e-3
-    weight_decay: float = 1e-4
-    grad_clip_norm: float = 1.0
+    weight_decay: float = 0.0
+    grad_clip_norm: float | None = None
 
 
 @dataclass
