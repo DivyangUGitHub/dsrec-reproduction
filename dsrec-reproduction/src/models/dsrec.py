@@ -282,12 +282,11 @@ class DSRec(nn.Module):
         mask: torch.Tensor,
     ) -> torch.Tensor:
         item_x = self.item_embedding(item_ids)
-        item_x = self.short_item_projection(item_x)
 
-        # The time-aware SSM branch owns its item+time concatenation and gate.
-        # Do not inject a second time embedding here. The Dual-Mamba ablation
-        # still receives the projected item+time input, for a fair comparison.
+        # The time-aware branch performs MLP_S(item || time) internally.
+        # Only the Dual-Mamba ablation builds a projected item+time input here.
         if self.short_branch == "mamba":
+            item_x = self.short_item_projection(item_x)
             time_x = self.time_embedding(time_bucket_ids)
             item_x = self.short_input_projection(
                 torch.cat([item_x, time_x], dim=-1)
