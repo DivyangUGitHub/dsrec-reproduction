@@ -30,6 +30,7 @@ class ModelConfig:
     short_branch: str = "time_aware_ssm"
     # "torch" is portable; "mamba_ssm" uses the official Mamba implementation.
     ssm_backend: str = "torch"
+    paper_norms: bool = False
 
 
 @dataclass
