@@ -65,3 +65,5 @@ Before public deployment, add authentication/rate limiting, structured observabi
 
 
 **Checkpoint note:** the short-term input and cross-fusion data flow changed during this alignment pass. Retrain `best.pt` before treating metrics or recommendations as results from the aligned architecture. Older checkpoints may still load for compatibility, but they were trained with the earlier data flow and are not valid paper-aligned evaluations.
+
+The current alignment pass does **not** claim full reproduction of the paper's complete experiment section: Amazon-Beauty/Amazon-Video-Games data ingestion and the Caser/GRU4Rec/NARM/SASRec/BERT4Rec/Mamba4Rec/SIGMA baseline comparison suite remain to be added. The paper's reported MovieLens counts also differ from the standard distributed MovieLens-1M archive; see `docs/paper_audit.md` rather than forcing undocumented filters.
