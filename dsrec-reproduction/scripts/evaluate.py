@@ -15,7 +15,7 @@ from src.data.dataset import DSRecDataset, Example
 from src.data.sequences import build_sequences
 from src.data.split import leave_one_out_split
 from src.data.time_features import load_time_bucketizer
-from src.evaluation import evaluate_ranking
+from src.evaluation import evaluate_ranking, mask_seen_items
 from src.models.dsrec import DSRec
 
 DEFAULT_PROCESSED_DIR = Path("data/processed")
@@ -154,7 +154,7 @@ def main() -> None:
     else:
         checkpoint_path = DEFAULT_CHECKPOINT_DIR / "best.pt"
 
-    batch_size = int(config.training.batch_size)
+    batch_size = int(config.training.validation_batch_size)
     max_len = int(config.data.max_sequence_length)
 
     print("=== PHASE 10: EVALUATION ===")
@@ -239,15 +239,7 @@ def main() -> None:
 
             logits = model(item_ids, time_bucket_ids, mask)
             if not args.allow_seen_items:
-                seen_mask = torch.zeros_like(logits, dtype=torch.bool)
-                seen_mask.scatter_(1, item_ids, mask)
-                # Never mask the ground-truth target, even if it is a repeat interaction.
-                seen_mask.scatter_(
-                    1,
-                    targets.unsqueeze(1),
-                    torch.zeros_like(targets.unsqueeze(1), dtype=torch.bool),
-                )
-                logits = logits.masked_fill(seen_mask, torch.finfo(logits.dtype).min)
+                logits = mask_seen_items(logits, item_ids, mask, targets)
             all_logits.append(logits.cpu())
             all_targets.append(targets.cpu())
 
@@ -255,7 +247,7 @@ def main() -> None:
                 print(f"  evaluated batch {batch_idx:,}/{len(loader):,}")
 
     if not all_logits:
-        raise RuntimeError("No validation batches were evaluated.")
+        raise RuntimeError("No evaluation batches were evaluated.")
 
     logits = torch.cat(all_logits, dim=0)
     targets = torch.cat(all_targets, dim=0)
