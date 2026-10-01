@@ -51,3 +51,11 @@ Large generated datasets and checkpoints are deliberately excluded from normal G
 ## Production hardening
 
 Before public deployment, add authentication/rate limiting, structured observability, backups, and versioned database migrations. The current stack is a reproducible research/demo service.
+
+## Research-paper alignment notes
+
+- `configs/paper_movielens.yaml` captures the paper's reported MovieLens settings: D=64, SSM state=32, convolution width=4, expansion=2, dropout=0.2, maximum sequence length=200, training batch=2048, validation batch=4096, and Adam learning rate=0.001. The paper does not specify MovieLens block count, time-bucket count, or epoch count; those values are documented assumptions in `docs/paper_audit.md`.
+- The model includes separate long- and short-interest representations, historical-mean aggregation, log-scaled quantile time buckets, time-gated short-term state updates, detached residual cross-fusion, a tied item-embedding prediction matrix, and full-softmax cross-entropy.
+- `HR@K`, `NDCG@K`, and `MRR@K` are reported. Evaluation defaults to the last-item test target and masks items in the input context, except the held-out target. Candidate filtering is not specified by the paper, so use `--allow-seen-items` to run without this assumption.
+- The official Mamba backend is selected by the paper config and requires the optional `mamba-ssm` package in a supported Linux/CUDA environment. The portable `torch` backend used by the default config is a custom SSM-style approximation, **not an exact replacement for official Mamba**. Do not compare its scores as an exact paper reproduction without stating this difference.
+- This repository currently preprocesses MovieLens-1M only. The paper also evaluates Amazon-Beauty and Amazon-Video-Games; those dataset pipelines and full three-dataset experiments remain outstanding.
