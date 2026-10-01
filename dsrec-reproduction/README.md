@@ -19,6 +19,9 @@ From the dsrec-reproduction/ directory:
 5. Run: python scripts/build_time_buckets.py
 6. Run: python scripts/validate_project.py
 7. Run: pytest
+8. For a portable smoke run: `python scripts/train.py --config configs/default.yaml`
+9. On supported Linux/CUDA, install official Mamba with `pip install -e ".[mamba]"`, then train using `python scripts/train.py --config configs/paper_movielens.yaml`
+10. Evaluate the held-out test item using the matching config: `python scripts/evaluate.py --config configs/paper_movielens.yaml --split test`
 
 The generated processed artifacts are required by inference. The trained checkpoint is a generated binary artifact and is intentionally not committed to source control.
 
