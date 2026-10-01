@@ -20,7 +20,7 @@ export default function Home() {
     rank: number,
   ) {
     try {
-      await fetch("/v1/interactions", {
+      const response = await fetch("/v1/interactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -32,9 +32,20 @@ export default function Home() {
           metadata: { model_version: data?.model_version ?? "unknown" },
         }),
       });
+
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          body.detail ?? `Feedback request failed (${response.status})`,
+        );
+      }
+
       setFeedback((current) => ({ ...current, [item.item_id]: eventType }));
-    } catch {
-      // Feedback must never block the recommendation experience.
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not record feedback.",
+      );
     }
   }
 
