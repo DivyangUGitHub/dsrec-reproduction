@@ -51,6 +51,7 @@ class DSRecBlock(nn.Module):
         short_ssm: bool = True,
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
+        ssm_backend: str = "torch",
     ):
         super().__init__()
 
@@ -63,6 +64,7 @@ class DSRecBlock(nn.Module):
         self.dual_interest = dual_interest
         self.use_short_ssm = short_ssm
         self.short_branch = short_branch
+        self.ssm_backend = ssm_backend
 
         # Keep the baseline attribute name `short_ssm` so existing baseline
         # checkpoints remain loadable. The new boolean is `use_short_ssm`.
@@ -72,6 +74,7 @@ class DSRecBlock(nn.Module):
             conv_width=conv_width,
             expansion=expansion,
             dropout=dropout,
+            backend=ssm_backend,
         )
 
         if dual_interest:
@@ -83,6 +86,7 @@ class DSRecBlock(nn.Module):
                     conv_width=conv_width,
                     expansion=expansion,
                     dropout=dropout,
+                    ssm_backend=ssm_backend,
                 )
             elif short_ssm and short_branch == "mamba":
                 self.short_mamba = MambaBlock(
@@ -91,6 +95,7 @@ class DSRecBlock(nn.Module):
                     conv_width=conv_width,
                     expansion=expansion,
                     dropout=dropout,
+                    backend=ssm_backend,
                 )
             else:
                 self.short_identity = nn.Identity()
@@ -127,17 +132,19 @@ class DSRecBlock(nn.Module):
                 mask,
             )
 
+        # Apply each branch's own FFN first. The paper describes the cross
+        # residual as detached auxiliary context after branch-specific
+        # encoding; use the two original branch outputs symmetrically so one
+        # branch does not accidentally consume the already-fused other branch.
+        long_refined = long_out + self.long_ffn(self.long_norm(long_out))
+        short_refined = short_out + self.short_ffn(self.short_norm(short_out))
+
         if self.cross_fusion:
-            # Residual cross-connection. Detach prevents cross-branch
-            # gradient entanglement, matching the baseline implementation.
-            long_out = long_out + short_out.detach()
-            short_out = short_out + long_out.detach()
-
-        long_out = self.long_norm(long_out)
-        short_out = self.short_norm(short_out)
-
-        long_out = long_out + self.long_ffn(long_out)
-        short_out = short_out + self.short_ffn(short_out)
+            long_out = long_refined + short_refined.detach()
+            short_out = short_refined + long_refined.detach()
+        else:
+            long_out = long_refined
+            short_out = short_refined
 
         return long_out, short_out
 
@@ -160,6 +167,7 @@ class DSRec(nn.Module):
         short_ssm: bool = True,
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
+        ssm_backend: str = "torch",
     ):
         super().__init__()
 
@@ -170,6 +178,7 @@ class DSRec(nn.Module):
         self.short_ssm = short_ssm
         self.long_branch = long_branch
         self.short_branch = short_branch
+        self.ssm_backend = ssm_backend
 
         self.item_embedding = nn.Embedding(
             n_items + 1,
@@ -209,6 +218,7 @@ class DSRec(nn.Module):
                     short_ssm=short_ssm,
                     long_branch=long_branch,
                     short_branch=short_branch,
+                    ssm_backend=ssm_backend,
                 )
                 for _ in range(n_blocks)
             ]
@@ -252,10 +262,17 @@ class DSRec(nn.Module):
     ) -> torch.Tensor:
         item_x = self.item_embedding(item_ids)
         item_x = self.short_item_projection(item_x)
-        time_x = self.time_embedding(time_bucket_ids)
-        short_x = torch.cat([item_x, time_x], dim=-1)
-        short_x = self.short_input_projection(short_x)
-        return short_x * mask.unsqueeze(-1)
+
+        # The time-aware SSM branch owns its item+time concatenation and gate.
+        # Do not inject a second time embedding here. The Dual-Mamba ablation
+        # still receives the projected item+time input, for a fair comparison.
+        if self.short_branch == "mamba":
+            time_x = self.time_embedding(time_bucket_ids)
+            item_x = self.short_input_projection(
+                torch.cat([item_x, time_x], dim=-1)
+            )
+
+        return item_x * mask.unsqueeze(-1)
 
     def forward(
         self,
