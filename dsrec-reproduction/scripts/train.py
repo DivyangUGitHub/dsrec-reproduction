@@ -337,7 +337,9 @@ def main() -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_model_config = {
+        "max_sequence_length": max_len,
         "d_model": d_model,
+        "n_items": n_items,
         "n_time_buckets": n_time_buckets,
         "n_blocks": n_blocks,
         "d_state": d_state,
