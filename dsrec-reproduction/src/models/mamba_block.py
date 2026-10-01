@@ -35,41 +35,70 @@ class MambaBlock(nn.Module):
         conv_width: int = 4,
         expansion: int = 2,
         dropout: float = 0.2,
+        backend: str = "torch",
     ) -> None:
         super().__init__()
+
+        if backend not in {"torch", "mamba_ssm"}:
+            raise ValueError("backend must be 'torch' or 'mamba_ssm'")
 
         self.d_model = d_model
         self.d_state = d_state
         self.conv_width = conv_width
         self.expansion = expansion
+        self.backend = backend
+        self.dropout = nn.Dropout(dropout)
 
         inner_dim = d_model * expansion
         self.inner_dim = inner_dim
 
-        # W1 projection
-        self.in_proj = nn.Linear(d_model, inner_dim)
+        if backend == "mamba_ssm":
+            try:
+                from mamba_ssm import Mamba
+            except ImportError as exc:
+                raise ImportError(
+                    "The official Mamba backend requires mamba-ssm. Install the "
+                    "optional 'mamba' dependencies in a supported Linux/CUDA environment, "
+                    "or select ssm_backend: torch for the portable PyTorch approximation."
+                ) from exc
+            self.official_mamba = Mamba(
+                d_model=d_model,
+                d_state=d_state,
+                d_conv=conv_width,
+                expand=expansion,
+            )
+            # Keep the portable backend's parameter names absent from this state dict.
+            self.in_proj = None
+            self.conv1d = None
+            self.delta_proj = None
+            self.b_proj = None
+            self.c_proj = None
+            self.register_parameter("a_log", None)
+            self.out_proj = None
+        else:
+            self.official_mamba = None
+            # W1 projection
+            self.in_proj = nn.Linear(d_model, inner_dim)
 
-        # Local temporal processing
-        self.conv1d = nn.Conv1d(
-            in_channels=inner_dim,
-            out_channels=inner_dim,
-            kernel_size=conv_width,
-            padding=conv_width - 1,
-            groups=inner_dim,
-        )
+            # Local temporal processing
+            self.conv1d = nn.Conv1d(
+                in_channels=inner_dim,
+                out_channels=inner_dim,
+                kernel_size=conv_width,
+                padding=conv_width - 1,
+                groups=inner_dim,
+            )
 
-        # Input-dependent SSM parameters.
-        self.delta_proj = nn.Linear(inner_dim, inner_dim)
-        self.b_proj = nn.Linear(inner_dim, d_state)
-        self.c_proj = nn.Linear(inner_dim, d_state)
+            # Input-dependent SSM parameters.
+            self.delta_proj = nn.Linear(inner_dim, inner_dim)
+            self.b_proj = nn.Linear(inner_dim, d_state)
+            self.c_proj = nn.Linear(inner_dim, d_state)
 
-        # Learnable state dynamics.
-        self.a_log = nn.Parameter(torch.zeros(inner_dim, d_state))
+            # Learnable state dynamics.
+            self.a_log = nn.Parameter(torch.zeros(inner_dim, d_state))
 
-        # W2 projection
-        self.out_proj = nn.Linear(inner_dim, d_model)
-
-        self.dropout = nn.Dropout(dropout)
+            # W2 projection
+            self.out_proj = nn.Linear(inner_dim, d_model)
 
     def _ssm(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -139,6 +168,16 @@ class MambaBlock(nn.Module):
             raise ValueError(f"MambaBlock expected [B, L, D], got {tuple(x.shape)}")
 
         residual = x
+
+        if self.backend == "mamba_ssm":
+            output = residual + self.dropout(self.official_mamba(x))
+            if mask is not None:
+                if mask.shape != x.shape[:2]:
+                    raise ValueError(
+                        f"mask must have shape {tuple(x.shape[:2])}, got {tuple(mask.shape)}"
+                    )
+                output = output * mask.unsqueeze(-1).to(output.dtype)
+            return output
 
         # W1 projection + SiLU.
         h = self.in_proj(x)
