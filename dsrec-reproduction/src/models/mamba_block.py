@@ -24,8 +24,10 @@ class MambaBlock(nn.Module):
     Output:
         [B, L, D]
 
-    This implementation provides a PyTorch-only SSM-style recurrence because
-    mamba_ssm is not installed in the current environment.
+    backend="mamba_ssm" delegates to the official mamba-ssm implementation.
+    backend="torch" is a portable selective-SSM-style approximation for
+    environments where the CUDA-oriented official package is unavailable.
+    The two backends are not numerically or checkpoint compatible.
     """
 
     def __init__(
