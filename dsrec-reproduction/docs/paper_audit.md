@@ -128,3 +128,9 @@ Table II, MovieLens-1M, DSRec: HR@10 = 0.3217, NDCG@10 = 0.1869, MRR@10 = 0.1454
 - The default evaluation masks prior context items from ranking but preserves the held-out target. The paper does not explicitly specify candidate filtering, so this remains an implementation assumption; use `--allow-seen-items` to disable it.
 - `configs/paper_movielens.yaml` records the reported MovieLens hyperparameters (D=64, state=32, convolution width=4, expansion=2, dropout=0.2, max length=200, train batch=2048, validation batch=4096, Adam learning rate=0.001). The number of blocks and time-bucket count are marked assumptions because the paper does not specify them for MovieLens. The epoch count is also a tunable implementation choice, not a reported paper value.
 - The preprocessing currently targets MovieLens-1M. Amazon-Beauty and Amazon-Video-Games ingestion/benchmark reproduction are not included in this pass; results should not be described as a reproduction of all three paper datasets.
+
+
+## Remaining reproduction gaps
+
+- The paper reports three datasets (MovieLens-1M, Amazon-Beauty, and Amazon-Video-Games) and compares DSRec with Caser, GRU4Rec, NARM, SASRec, BERT4Rec, Mamba4Rec, and SIGMA. This repository currently has the MovieLens-1M data pipeline and DSRec evaluation only; the Amazon ingestion and baseline implementations/results are not part of this alignment pass.
+- The paper's MovieLens table reports 6,041 users, 3,417 items, and 999,611 interactions, which do not match the commonly distributed MovieLens-1M ratings.dat counts. Because the paper does not specify a filtering procedure that explains these differences, the pipeline does not silently delete records just to force those numbers. Record the actual downloaded archive and resulting preprocessing statistics with any experiment.
