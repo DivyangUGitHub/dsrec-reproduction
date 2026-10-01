@@ -81,8 +81,8 @@ def evaluate(
     criterion: torch.nn.Module,
     device: torch.device,
     max_batches: int | None = None,
-) -> float:
-    """Evaluate average validation loss."""
+) -> tuple[float, dict[str, float]]:
+    """Evaluate average validation loss and paper ranking metrics."""
     model.eval()
     total_loss = 0.0
     total_examples = 0
