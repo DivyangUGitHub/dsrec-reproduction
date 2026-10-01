@@ -59,3 +59,6 @@ Before public deployment, add authentication/rate limiting, structured observabi
 - `HR@K`, `NDCG@K`, and `MRR@K` are reported. Evaluation defaults to the last-item test target and masks items in the input context, except the held-out target. Candidate filtering is not specified by the paper, so use `--allow-seen-items` to run without this assumption.
 - The official Mamba backend is selected by the paper config and requires the optional `mamba-ssm` package in a supported Linux/CUDA environment. The portable `torch` backend used by the default config is a custom SSM-style approximation, **not an exact replacement for official Mamba**. Do not compare its scores as an exact paper reproduction without stating this difference.
 - This repository currently preprocesses MovieLens-1M only. The paper also evaluates Amazon-Beauty and Amazon-Video-Games; those dataset pipelines and full three-dataset experiments remain outstanding.
+
+
+**Checkpoint note:** the short-term input and cross-fusion data flow changed during this alignment pass. Retrain `best.pt` before treating metrics or recommendations as results from the aligned architecture. Older checkpoints may still load for compatibility, but they were trained with the earlier data flow and are not valid paper-aligned evaluations.
