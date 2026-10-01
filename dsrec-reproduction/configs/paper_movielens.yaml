@@ -19,6 +19,7 @@ model:
   long_branch: mamba
   short_branch: time_aware_ssm
   ssm_backend: mamba_ssm
+  paper_norms: true
 training:
   batch_size: 2048
   validation_batch_size: 4096
