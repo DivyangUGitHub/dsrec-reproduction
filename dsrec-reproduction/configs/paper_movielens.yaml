@@ -1,0 +1,28 @@
+# Research-oriented MovieLens-1M configuration from DSRec Sec. IV-A.3.
+# Official Mamba requires a supported Linux/CUDA environment; Windows users can
+# switch ssm_backend to "torch" for the portable approximation (not exact Mamba).
+seed: 42
+data:
+  processed_dir: data/processed
+  max_sequence_length: 200
+  n_time_buckets: 10 # bucket count is not specified in the paper; documented assumption
+model:
+  d_model: 64
+  n_blocks: 2 # MovieLens block count is not reported; documented implementation assumption
+  d_state: 32
+  conv_width: 4
+  expansion: 2
+  dropout: 0.2
+  cross_fusion: true
+  dual_interest: true
+  short_ssm: true
+  long_branch: mamba
+  short_branch: time_aware_ssm
+  ssm_backend: mamba_ssm
+training:
+  batch_size: 2048
+  validation_batch_size: 4096
+  epochs: 100 # epoch count is not reported; tune using validation results
+  learning_rate: 0.001
+  weight_decay: 0.0
+  grad_clip_norm: null
