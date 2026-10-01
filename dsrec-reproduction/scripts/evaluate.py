@@ -22,28 +22,45 @@ DEFAULT_PROCESSED_DIR = Path("data/processed")
 DEFAULT_CHECKPOINT_DIR = Path("data/checkpoints")
 
 
-def build_validation_examples(
+def build_evaluation_examples(
     df: pd.DataFrame,
+    split_name: str,
 ) -> list[Example]:
-    """Build exactly one validation example per eligible user."""
+    """Build one leave-one-out validation or test example per eligible user."""
+
+    if split_name not in {"val", "test"}:
+        raise ValueError("split_name must be 'val' or 'test'")
 
     sequences = build_sequences(df)
-    val_examples: list[Example] = []
+    examples: list[Example] = []
 
     for sequence in sequences.values():
         split = leave_one_out_split(sequence)
         if split is None:
             continue
 
-        val_examples.append(
+        if split_name == "val":
+            context_items, context_gaps, target = (
+                split.val_context_items,
+                split.val_context_gaps,
+                split.val_target,
+            )
+        else:
+            context_items, context_gaps, target = (
+                split.test_context_items,
+                split.test_context_gaps,
+                split.test_target,
+            )
+
+        examples.append(
             Example(
-                context_items=split.val_context_items,
-                context_gaps=split.val_context_gaps,
-                target=split.val_target,
+                context_items=context_items,
+                context_gaps=context_gaps,
+                target=target,
             )
         )
 
-    return val_examples
+    return examples
 
 
 def load_model(
@@ -68,6 +85,7 @@ def load_model(
         short_ssm=bool(config.model.short_ssm),
         long_branch=str(config.model.long_branch),
         short_branch=str(config.model.short_branch),
+        ssm_backend=str(config.model.ssm_backend),
     ).to(device)
 
     checkpoint = torch.load(
@@ -104,7 +122,21 @@ def main() -> None:
         "--max-batches",
         type=int,
         default=None,
-        help="Maximum validation batches. None = full validation set.",
+        help="Maximum evaluation batches. None = full split.",
+    )
+    parser.add_argument(
+        "--split",
+        choices=("val", "test"),
+        default="test",
+        help="Evaluate the validation target or the held-out last item (default: test).",
+    )
+    parser.add_argument(
+        "--allow-seen-items",
+        action="store_true",
+        help=(
+            "Do not mask items in the input context. By default, previously seen "
+            "items are excluded from ranking, except the held-out target."
+        ),
     )
 
     args = parser.parse_args()
@@ -131,6 +163,8 @@ def main() -> None:
 
     print(f"Device: {device}")
     print("Config:", args.config or "built-in defaults")
+    print("Split:", args.split)
+    print("Mask seen items:", not args.allow_seen_items)
     print(f"Checkpoint: {checkpoint_path}")
 
     if not checkpoint_path.exists():
@@ -142,14 +176,14 @@ def main() -> None:
     df = pd.read_pickle(interactions_path)
     print(f"Interactions: {len(df):,}")
 
-    print("Building validation examples...")
-    val_examples = build_validation_examples(df)
-    print(f"Validation examples: {len(val_examples):,}")
+    print(f"Building {args.split} examples...")
+    evaluation_examples = build_evaluation_examples(df, args.split)
+    print(f"Evaluation examples: {len(evaluation_examples):,}")
 
     bucketizer = load_time_bucketizer(processed_dir / "time_bucketizer.pkl")
 
     dataset = DSRecDataset(
-        examples=val_examples,
+        examples=evaluation_examples,
         bucketizer=bucketizer,
         max_len=max_len,
     )
@@ -161,7 +195,7 @@ def main() -> None:
         collate_fn=collate_batch,
     )
 
-    print(f"Validation batches: {len(loader):,}")
+    print(f"Evaluation batches: {len(loader):,}")
 
     n_items = int(df["item_id"].max())
     model = load_model(
@@ -204,6 +238,16 @@ def main() -> None:
             targets = batch["target"].to(device)
 
             logits = model(item_ids, time_bucket_ids, mask)
+            if not args.allow_seen_items:
+                seen_mask = torch.zeros_like(logits, dtype=torch.bool)
+                seen_mask.scatter_(1, item_ids, mask)
+                # Never mask the ground-truth target, even if it is a repeat interaction.
+                seen_mask.scatter_(
+                    1,
+                    targets.unsqueeze(1),
+                    torch.zeros_like(targets.unsqueeze(1), dtype=torch.bool),
+                )
+                logits = logits.masked_fill(seen_mask, torch.finfo(logits.dtype).min)
             all_logits.append(logits.cpu())
             all_targets.append(targets.cpu())
 
@@ -222,12 +266,12 @@ def main() -> None:
         ks=(1, 5, 10, 20),
     )
 
-    print("\n=== RANKING RESULTS ===")
+    print(f"\n=== {args.split.upper()} RANKING RESULTS ===")
     for name, value in metrics.items():
         print(f"{name.upper():8s}: {value:.6f}")
 
     print(f"\nEvaluated examples: {len(targets):,}")
-    print("=== PHASE 10 COMPLETE ===")
+    print("=== EVALUATION COMPLETE ===")
 
 
 if __name__ == "__main__":
