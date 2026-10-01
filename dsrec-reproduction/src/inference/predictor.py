@@ -57,6 +57,7 @@ class Predictor:
             long_branch=str(saved_config.get("long_branch", "mamba")),
             short_branch=str(saved_config.get("short_branch", "time_aware_ssm")),
             ssm_backend=str(saved_config.get("ssm_backend", "torch")),
+            paper_norms=bool(saved_config.get("paper_norms", False)),
         ).to(self.device)
         self.model.load_state_dict(state)
         self.model.eval()
