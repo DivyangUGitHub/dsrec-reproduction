@@ -68,7 +68,11 @@ class DSRecBlock(nn.Module):
         self.ssm_backend = ssm_backend
         self.paper_norms = paper_norms
         self.long_input_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
-        self.short_input_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
+        self.short_input_norm = (
+            nn.LayerNorm(d_model)
+            if paper_norms and short_branch == "mamba"
+            else nn.Identity()
+        )
 
         # Keep the baseline attribute name `short_ssm` so existing baseline
         # checkpoints remain loadable. The new boolean is `use_short_ssm`.
