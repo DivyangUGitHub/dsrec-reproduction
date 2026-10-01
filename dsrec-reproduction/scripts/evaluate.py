@@ -86,6 +86,7 @@ def load_model(
         long_branch=str(config.model.long_branch),
         short_branch=str(config.model.short_branch),
         ssm_backend=str(config.model.ssm_backend),
+        paper_norms=bool(config.model.paper_norms),
     ).to(device)
 
     checkpoint = torch.load(
@@ -212,6 +213,8 @@ def main() -> None:
     print(f"  short_ssm: {config.model.short_ssm}")
     print(f"  long_branch: {config.model.long_branch}")
     print(f"  short_branch: {config.model.short_branch}")
+    print(f"  ssm_backend: {config.model.ssm_backend}")
+    print(f"  paper_norms: {config.model.paper_norms}")
 
     checkpoint = torch.load(
         checkpoint_path,
