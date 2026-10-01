@@ -419,7 +419,7 @@ def main() -> None:
         print(f"\nEpoch {epoch} complete")
         print(f"  train loss: {train_loss:.4f}")
         print(f"  val loss:   {val_loss:.4f}")
-        print(f"  HR@10:      {val_metrics['hit@10']:.6f}")
+        print(f"  HR@10:      {val_metrics['hr@10']:.6f}")
         print(f"  NDCG@10:    {val_metrics['ndcg@10']:.6f}")
         print(f"  MRR@10:     {val_metrics['mrr@10']:.6f}")
 
