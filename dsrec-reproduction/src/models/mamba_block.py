@@ -154,6 +154,7 @@ class MambaBlock(nn.Module):
         self,
         x: torch.Tensor,
         mask: torch.Tensor | None = None,
+        residual_input: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -169,7 +170,9 @@ class MambaBlock(nn.Module):
         if x.ndim != 3:
             raise ValueError(f"MambaBlock expected [B, L, D], got {tuple(x.shape)}")
 
-        residual = x
+        residual = x if residual_input is None else residual_input
+        if residual.shape != x.shape:
+            raise ValueError("residual_input must have the same shape as x")
 
         if self.backend == "mamba_ssm":
             output = residual + self.dropout(self.official_mamba(x))
