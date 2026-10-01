@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from src.data.preprocessing import IdMapping
 from src.data.time_features import load_time_bucketizer
 from src.models.dsrec import DSRec
 
@@ -20,14 +21,18 @@ class Predictor:
         interactions: Path,
         time_bucketizer: Path,
         user_mapping: Path,
+        item_mapping: Path,
         max_len: int = 50,
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_len = max_len
         self.interactions = pd.read_pickle(interactions)
         self.bucketizer = load_time_bucketizer(time_bucketizer)
+
         with user_mapping.open("rb") as f:
-            self.user_mapping = pickle.load(f)
+            self.user_mapping: IdMapping = pickle.load(f)
+        with item_mapping.open("rb") as f:
+            self.item_mapping: IdMapping = pickle.load(f)
 
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
         state = ckpt["model_state_dict"]
@@ -72,8 +77,12 @@ class Predictor:
             logits = self.model(ids, tb, mask)[0]
             values, indices = torch.topk(logits, k=min(top_k, logits.numel() - 1))
 
-        return [
-            (int(i), float(v))
-            for i, v in zip(indices.tolist(), values.tolist(), strict=True)
-            if i != 0
-        ]
+        recommendations: list[tuple[int, float]] = []
+        for internal_item_id, score in zip(indices.tolist(), values.tolist(), strict=True):
+            if internal_item_id == 0:
+                continue
+            raw_item_id = self.item_mapping.internal_to_raw.get(internal_item_id)
+            if raw_item_id is None:
+                continue
+            recommendations.append((int(raw_item_id), float(score)))
+        return recommendations
