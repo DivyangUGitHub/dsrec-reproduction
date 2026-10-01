@@ -5,8 +5,10 @@ Phase 9 — DSRec training loop with validation and checkpointing.
 from __future__ import annotations
 
 import argparse
+import random
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
@@ -17,6 +19,7 @@ from src.data.dataset import DSRecDataset, Example
 from src.data.sequences import build_sequences
 from src.data.split import generate_training_examples, leave_one_out_split
 from src.data.time_features import load_time_bucketizer
+from src.evaluation import evaluate_ranking
 from src.models.dsrec import DSRec
 
 CHECKPOINT_DIR = Path("data/checkpoints")
@@ -83,6 +86,8 @@ def evaluate(
     model.eval()
     total_loss = 0.0
     total_examples = 0
+    all_logits: list[torch.Tensor] = []
+    all_targets: list[torch.Tensor] = []
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(loader, start=1):
@@ -96,6 +101,8 @@ def evaluate(
 
             logits = model(item_ids, time_bucket_ids, mask)
             loss = criterion(logits, targets)
+            all_logits.append(logits.cpu())
+            all_targets.append(targets.cpu())
 
             batch_size = targets.size(0)
             total_loss += loss.item() * batch_size
@@ -109,7 +116,10 @@ def evaluate(
             "Increase --max-val-batches or check the validation dataset."
         )
 
-    return total_loss / total_examples
+    logits_all = torch.cat(all_logits, dim=0)
+    targets_all = torch.cat(all_targets, dim=0)
+    metrics = evaluate_ranking(logits_all, targets_all, ks=(10,))
+    return total_loss / total_examples, metrics
 
 
 def save_checkpoint(
@@ -185,7 +195,9 @@ def main() -> None:
 
     epochs = args.epochs if args.epochs is not None else int(training_config.epochs)
 
+    # The paper specifies different training and validation batch sizes.
     batch_size = int(training_config.batch_size)
+    validation_batch_size = int(training_config.validation_batch_size)
     max_len = int(data_config.max_sequence_length)
     n_time_buckets = int(data_config.n_time_buckets)
     d_model = int(model_config.d_model)
@@ -200,8 +212,17 @@ def main() -> None:
     short_ssm = bool(model_config.short_ssm)
     long_branch = str(model_config.long_branch)
     short_branch = str(model_config.short_branch)
+    ssm_backend = str(model_config.ssm_backend)
 
     learning_rate = float(training_config.learning_rate)
+    weight_decay = float(training_config.weight_decay)
+    grad_clip_norm = training_config.grad_clip_norm
+
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(config.seed)
     processed_dir = Path(data_config.processed_dir)
     checkpoint_dir = (
         Path("experiments/checkpoints") / str(config.ablation)
@@ -218,7 +239,8 @@ def main() -> None:
     print("Ablation:", config.ablation or "baseline")
     print("Checkpoint directory:", checkpoint_dir)
     print("Epochs:", epochs)
-    print("Batch size:", batch_size)
+    print("Training batch size:", batch_size)
+    print("Validation batch size:", validation_batch_size)
     print("Max sequence length:", max_len)
     print("Model dimension:", d_model)
     print("Blocks:", n_blocks)
@@ -229,6 +251,9 @@ def main() -> None:
     print("Short SSM:", short_ssm)
     print("Long branch:", long_branch)
     print("Short branch:", short_branch)
+    print("SSM backend:", ssm_backend)
+    print("Weight decay:", weight_decay)
+    print("Gradient clipping:", grad_clip_norm if grad_clip_norm is not None else "disabled")
     print(
         "Max train batches:",
         args.max_train_batches if args.max_train_batches is not None else "ALL",
@@ -270,7 +295,7 @@ def main() -> None:
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=validation_batch_size,
         shuffle=False,
         collate_fn=collate_batch,
     )
@@ -294,6 +319,7 @@ def main() -> None:
         short_ssm=short_ssm,
         long_branch=long_branch,
         short_branch=short_branch,
+        ssm_backend=ssm_backend,
     ).to(device)
 
     parameter_count = sum(p.numel() for p in model.parameters())
@@ -303,6 +329,7 @@ def main() -> None:
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
+        weight_decay=weight_decay,
     )
     criterion = torch.nn.CrossEntropyLoss()
     best_val_loss = float("inf")
@@ -321,6 +348,7 @@ def main() -> None:
         "short_ssm": short_ssm,
         "long_branch": long_branch,
         "short_branch": short_branch,
+        "ssm_backend": ssm_backend,
     }
 
     for epoch in range(1, epochs + 1):
@@ -347,6 +375,8 @@ def main() -> None:
                 raise RuntimeError(f"Non-finite training loss at epoch={epoch}, batch={batch_idx}")
 
             loss.backward()
+            if grad_clip_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), float(grad_clip_norm))
             optimizer.step()
 
             current_batch_size = targets.size(0)
@@ -368,7 +398,7 @@ def main() -> None:
             raise RuntimeError("Training processed zero examples. Increase --max-train-batches.")
 
         train_loss = total_loss / total_examples
-        val_loss = evaluate(
+        val_loss, val_metrics = evaluate(
             model=model,
             loader=val_loader,
             criterion=criterion,
@@ -382,6 +412,9 @@ def main() -> None:
         print(f"\nEpoch {epoch} complete")
         print(f"  train loss: {train_loss:.4f}")
         print(f"  val loss:   {val_loss:.4f}")
+        print(f"  HR@10:      {val_metrics['hit@10']:.6f}")
+        print(f"  NDCG@10:    {val_metrics['ndcg@10']:.6f}")
+        print(f"  MRR@10:     {val_metrics['mrr@10']:.6f}")
 
         last_path = checkpoint_dir / "last.pt"
         save_checkpoint(
