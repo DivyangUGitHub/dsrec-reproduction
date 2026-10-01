@@ -19,7 +19,7 @@ from src.data.dataset import DSRecDataset, Example
 from src.data.sequences import build_sequences
 from src.data.split import generate_training_examples, leave_one_out_split
 from src.data.time_features import load_time_bucketizer
-from src.evaluation import evaluate_ranking
+from src.evaluation import evaluate_ranking, mask_seen_items
 from src.models.dsrec import DSRec
 
 CHECKPOINT_DIR = Path("data/checkpoints")
@@ -101,7 +101,8 @@ def evaluate(
 
             logits = model(item_ids, time_bucket_ids, mask)
             loss = criterion(logits, targets)
-            all_logits.append(logits.cpu())
+            ranking_logits = mask_seen_items(logits, item_ids, mask, targets)
+            all_logits.append(ranking_logits.cpu())
             all_targets.append(targets.cpu())
 
             batch_size = targets.size(0)
