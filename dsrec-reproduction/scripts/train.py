@@ -214,6 +214,7 @@ def main() -> None:
     long_branch = str(model_config.long_branch)
     short_branch = str(model_config.short_branch)
     ssm_backend = str(model_config.ssm_backend)
+    paper_norms = bool(model_config.paper_norms)
 
     learning_rate = float(training_config.learning_rate)
     weight_decay = float(training_config.weight_decay)
@@ -253,6 +254,7 @@ def main() -> None:
     print("Long branch:", long_branch)
     print("Short branch:", short_branch)
     print("SSM backend:", ssm_backend)
+    print("Paper pre-norm blocks:", paper_norms)
     print("Weight decay:", weight_decay)
     print("Gradient clipping:", grad_clip_norm if grad_clip_norm is not None else "disabled")
     print(
@@ -321,6 +323,7 @@ def main() -> None:
         long_branch=long_branch,
         short_branch=short_branch,
         ssm_backend=ssm_backend,
+        paper_norms=paper_norms,
     ).to(device)
 
     parameter_count = sum(p.numel() for p in model.parameters())
@@ -352,6 +355,7 @@ def main() -> None:
         "long_branch": long_branch,
         "short_branch": short_branch,
         "ssm_backend": ssm_backend,
+        "paper_norms": paper_norms,
     }
 
     for epoch in range(1, epochs + 1):
