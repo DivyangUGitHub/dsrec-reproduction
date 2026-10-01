@@ -4,100 +4,50 @@ A reproducible sequential recommendation system implementing a dual-interest arc
 
 ## Current status
 
-- Dataset preprocessing and sequence construction are implemented.
-- DSRec forward pass, training loop, checkpointing, and ranking evaluation are implemented.
-- Controlled CPU training has been exercised; full CPU training is computationally expensive.
-- Packaging, inference service scaffolding, containerization, validation, and CI are implemented.
-- Step 13 adds a Next.js + React frontend for the live recommendation experience.
-- Step 14 adds PostgreSQL-backed users and interaction events (impression/click/like/dislike/hide).
-
-> Production deployment still requires load testing, observability, authentication/rate limiting, database migration management, backups, and a completed reproduction report.
+- Dataset preprocessing, training, checkpointing, evaluation, FastAPI inference, PostgreSQL interaction tracking, and the Next.js frontend are implemented.
+- Inference converts model-internal item IDs back to original MovieLens item IDs before returning recommendations.
+- Like/skip/open feedback is persisted for future offline model improvement; it is not applied to the live model in real time.
 
 ## Local setup
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-$env:PYTHONPATH="."
-python scripts/validate_project.py
-pytest
-```
+From the dsrec-reproduction/ directory:
 
-## Training
+1. Create and activate a Python virtual environment.
+2. Run: pip install -r requirements-dev.txt
+3. Run: python scripts/download_movielens.py
+4. Run: python scripts/preprocess.py
+5. Run: python scripts/build_time_buckets.py
+6. Run: python scripts/validate_project.py
+7. Run: pytest
 
-```powershell
-$env:PYTHONPATH="."
-python scripts/train.py --epochs 1 --max-train-batches 1000 --max-val-batches 20
-```
-
-For the complete run, omit the batch limits. CPU execution can be very slow because the current reference implementation uses a Python-level SSM computation.
-
-## Evaluation
-
-```powershell
-$env:PYTHONPATH="."
-python scripts/evaluate.py --checkpoint data/checkpoints/best.pt
-```
+The generated processed artifacts are required by inference. The trained checkpoint is a generated binary artifact and is intentionally not committed to source control.
 
 ## API
 
-```bash
-uvicorn src.api.app:app --host 0.0.0.0 --port 8000
-```
+Run: uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 
-Health: `GET /v1/health`
+Endpoints: GET /v1/health, GET /v1/ready, POST /v1/recommend, POST /v1/interactions, and GET /v1/users/{user_id}/interactions?limit=50.
 
-Readiness: `GET /v1/ready`
-
-Recommendations: `POST /v1/recommend`
-
-Record user interaction: `POST /v1/interactions`
-
-List a user's recent interactions: `GET /v1/users/{user_id}/interactions?limit=50`
-
-Recommendation example:
-
-```json
-{"user_id": 1, "top_k": 10}
-```
-
-Interaction example:
-
-```json
-{
-  "user_id": 1,
-  "event_type": "like",
-  "item_id": 575,
-  "recommendation_rank": 1,
-  "recommendation_score": 5.26,
-  "session_id": "demo-session",
-  "metadata": {"source": "web"}
-}
-```
+Readiness checks both the recommender and database connectivity.
 
 ## Frontend
 
-The product UI lives in `frontend/` and uses Next.js + React. Run it separately during development:
+From frontend/: npm install && npm run dev
 
-```powershell
-cd frontend
-npm install
-npm run dev
-```
+Open http://localhost:3000. Next.js proxies /v1/* to FastAPI. Docker Compose sets DSREC_API_INTERNAL_URL so the web container reaches the API container.
 
-Open `http://localhost:3000`.
+## Docker Compose
 
-The UI can request recommendations and send like/skip/open events back to the FastAPI interaction API.
+Run: docker compose up --build
 
-## Docker
+Open http://localhost:3000 for the UI and http://localhost:8000/docs for the API.
 
-```bash
-docker compose up --build
-```
-
-The Compose stack now starts PostgreSQL and the DSRec API. PostgreSQL data is persisted in the `dsrec-postgres` named volume.
+The API mounts data/processed and data/checkpoints read-only. A fresh clone must therefore obtain/generate the processed artifacts and data/checkpoints/best.pt before recommendation inference can be served.
 
 ## Reproduction artifacts
 
-Large generated datasets and model checkpoints should be treated as release artifacts rather than ordinary source files. Record the dataset version, preprocessing configuration, seed, model configuration, checkpoint hash, and evaluation metrics in the reproduction report before claiming a final reproduction.
+Large generated datasets and checkpoints are deliberately excluded from normal Git history. Record dataset/version, preprocessing configuration, seed, model configuration, checkpoint hash, and evaluation metrics for each reproduction run.
+
+## Production hardening
+
+Before public deployment, add authentication/rate limiting, structured observability, backups, and versioned database migrations. The current stack is a reproducible research/demo service.
