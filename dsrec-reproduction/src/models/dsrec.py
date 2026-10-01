@@ -52,6 +52,7 @@ class DSRecBlock(nn.Module):
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
         ssm_backend: str = "torch",
+        paper_norms: bool = False,
     ):
         super().__init__()
 
@@ -65,6 +66,9 @@ class DSRecBlock(nn.Module):
         self.use_short_ssm = short_ssm
         self.short_branch = short_branch
         self.ssm_backend = ssm_backend
+        self.paper_norms = paper_norms
+        self.long_input_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
+        self.short_input_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
 
         # Keep the baseline attribute name `short_ssm` so existing baseline
         # checkpoints remain loadable. The new boolean is `use_short_ssm`.
@@ -114,7 +118,12 @@ class DSRecBlock(nn.Module):
         time_bucket_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        long_out = self.long_mamba(long_x, mask)
+        long_input = self.long_input_norm(long_x)
+        long_out = self.long_mamba(
+            long_input,
+            mask,
+            residual_input=long_x if self.paper_norms else None,
+        )
 
         if not self.dual_interest:
             long_out = self.long_norm(long_out)
@@ -124,7 +133,12 @@ class DSRecBlock(nn.Module):
         if not self.use_short_ssm:
             short_out = self.short_identity(short_x)
         elif self.short_branch == "mamba":
-            short_out = self.short_mamba(short_x, mask)
+            short_input = self.short_input_norm(short_x)
+            short_out = self.short_mamba(
+                short_input,
+                mask,
+                residual_input=short_x if self.paper_norms else None,
+            )
         else:
             short_out = self.short_ssm(
                 short_x,
@@ -168,6 +182,7 @@ class DSRec(nn.Module):
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
         ssm_backend: str = "torch",
+        paper_norms: bool = False,
     ):
         super().__init__()
 
@@ -179,6 +194,7 @@ class DSRec(nn.Module):
         self.long_branch = long_branch
         self.short_branch = short_branch
         self.ssm_backend = ssm_backend
+        self.paper_norms = paper_norms
 
         self.item_embedding = nn.Embedding(
             n_items + 1,
@@ -219,6 +235,7 @@ class DSRec(nn.Module):
                     long_branch=long_branch,
                     short_branch=short_branch,
                     ssm_backend=ssm_backend,
+                    paper_norms=paper_norms,
                 )
                 for _ in range(n_blocks)
             ]
