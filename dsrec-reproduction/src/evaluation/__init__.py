@@ -7,6 +7,7 @@ from collections.abc import Iterable
 import torch
 
 from .evaluator import evaluate_batch
+from .ranking import mask_seen_items
 from .metrics import hit_rate_at_k, mrr_at_k, ndcg_at_k, recall_at_k
 
 
@@ -36,6 +37,7 @@ __all__ = [
     "evaluate_batch",
     "evaluate_ranking",
     "hit_rate_at_k",
+    "mask_seen_items",
     "mrr_at_k",
     "ndcg_at_k",
     "recall_at_k",
