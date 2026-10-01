@@ -110,10 +110,12 @@ class DSRecBlock(nn.Module):
 
         self.long_norm = nn.LayerNorm(d_model)
         self.long_ffn = FeedForward(d_model, dropout)
+        self.long_post_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
 
         if dual_interest:
             self.short_norm = nn.LayerNorm(d_model)
             self.short_ffn = FeedForward(d_model, dropout)
+            self.short_post_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
 
     def forward(
         self,
@@ -154,8 +156,12 @@ class DSRecBlock(nn.Module):
         # residual as detached auxiliary context after branch-specific
         # encoding; use the two original branch outputs symmetrically so one
         # branch does not accidentally consume the already-fused other branch.
-        long_refined = long_out + self.long_ffn(self.long_norm(long_out))
-        short_refined = short_out + self.short_ffn(self.short_norm(short_out))
+        long_refined = self.long_post_norm(
+            long_out + self.long_ffn(self.long_norm(long_out))
+        )
+        short_refined = self.short_post_norm(
+            short_out + self.short_ffn(self.short_norm(short_out))
+        )
 
         if self.cross_fusion:
             long_out = long_refined + short_refined.detach()
