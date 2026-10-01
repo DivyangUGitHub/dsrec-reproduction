@@ -20,4 +20,11 @@ app = FastAPI(
     description="Inference service for the DSRec sequential recommender.",
     lifespan=lifespan,
 )
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"service": "DSRec Recommendation API", "docs": "/docs", "health": "/v1/health"}
+
+
 app.include_router(router, prefix="/v1")
