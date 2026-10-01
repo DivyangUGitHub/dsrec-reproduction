@@ -10,7 +10,7 @@ from src.api.interaction_schemas import (
     InteractionRequest,
     InteractionResponse,
 )
-from src.db import InteractionEvent, SessionLocal, User
+from src.db import InteractionEvent, SessionLocal, User, ping_db
 from src.inference.recommender import Recommender
 from src.inference.schemas import (
     Recommendation,
@@ -38,6 +38,8 @@ def health() -> dict[str, str]:
 def ready(
     recommender: Recommender = Depends(get_recommender),  # noqa: B008
 ) -> dict[str, str]:
+    if not ping_db():
+        raise HTTPException(status_code=503, detail="database is not ready")
     return {"status": "ready", "model_version": recommender.predictor.model_version}
 
 
