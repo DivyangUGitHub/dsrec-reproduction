@@ -27,7 +27,7 @@ def evaluate_ranking(
     """Compute Hit/HR and NDCG for one relevant target per example."""
     results: dict[str, float] = {}
     for k in ks:
-        results[f"hit@{k}"] = hit_rate_at_k(logits, targets, k)
+        results[f"hr@{k}"] = hit_rate_at_k(logits, targets, k)
         results[f"ndcg@{k}"] = ndcg_at_k(logits, targets, k)
         results[f"mrr@{k}"] = mrr_at_k(logits, targets, k)
     return results
