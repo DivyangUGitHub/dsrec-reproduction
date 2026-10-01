@@ -7,7 +7,8 @@ from collections.abc import Iterable
 import torch
 
 from .evaluator import evaluate_batch
-from .metrics import hit_rate_at_k, ndcg_at_k, recall_at_k
+from .metrics import hit_rate_at_k, mrr_at_k, ndcg_at_k, recall_at_k
+from .ranking import mask_seen_items
 
 
 def topk_predictions(logits: torch.Tensor, k: int) -> torch.Tensor:
@@ -26,8 +27,9 @@ def evaluate_ranking(
     """Compute Hit/HR and NDCG for one relevant target per example."""
     results: dict[str, float] = {}
     for k in ks:
-        results[f"hit@{k}"] = hit_rate_at_k(logits, targets, k)
+        results[f"hr@{k}"] = hit_rate_at_k(logits, targets, k)
         results[f"ndcg@{k}"] = ndcg_at_k(logits, targets, k)
+        results[f"mrr@{k}"] = mrr_at_k(logits, targets, k)
     return results
 
 
@@ -35,6 +37,8 @@ __all__ = [
     "evaluate_batch",
     "evaluate_ranking",
     "hit_rate_at_k",
+    "mask_seen_items",
+    "mrr_at_k",
     "ndcg_at_k",
     "recall_at_k",
     "topk_predictions",

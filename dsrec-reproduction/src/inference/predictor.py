@@ -22,7 +22,7 @@ class Predictor:
         time_bucketizer: Path,
         user_mapping: Path,
         item_mapping: Path,
-        max_len: int = 50,
+        max_len: int | None = None,
     ) -> None:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.max_len = max_len
@@ -36,16 +36,28 @@ class Predictor:
 
         ckpt = torch.load(checkpoint, map_location=self.device, weights_only=False)
         state = ckpt["model_state_dict"]
+        saved_config = ckpt.get("model_config", {})
         n_items = state["item_embedding.weight"].shape[0] - 1
+
+        # Recreate the exact architecture/backend used to train this checkpoint.
+        # Older checkpoints lack metadata and fall back to the portable baseline.
+        self.max_len = max_len or int(saved_config.get("max_sequence_length", 50))
         self.model = DSRec(
             n_items=n_items,
-            d_model=64,
-            n_time_buckets=10,
-            n_blocks=2,
-            d_state=32,
-            conv_width=4,
-            expansion=2,
-            dropout=0.2,
+            d_model=int(saved_config.get("d_model", 64)),
+            n_time_buckets=int(saved_config.get("n_time_buckets", self.bucketizer.n_buckets)),
+            n_blocks=int(saved_config.get("n_blocks", 2)),
+            d_state=int(saved_config.get("d_state", 32)),
+            conv_width=int(saved_config.get("conv_width", 4)),
+            expansion=int(saved_config.get("expansion", 2)),
+            dropout=float(saved_config.get("dropout", 0.2)),
+            cross_fusion=bool(saved_config.get("cross_fusion", True)),
+            dual_interest=bool(saved_config.get("dual_interest", True)),
+            short_ssm=bool(saved_config.get("short_ssm", True)),
+            long_branch=str(saved_config.get("long_branch", "mamba")),
+            short_branch=str(saved_config.get("short_branch", "time_aware_ssm")),
+            ssm_backend=str(saved_config.get("ssm_backend", "torch")),
+            paper_norms=bool(saved_config.get("paper_norms", False)),
         ).to(self.device)
         self.model.load_state_dict(state)
         self.model.eval()

@@ -18,6 +18,6 @@ def get_recommender() -> Recommender:
         / os.getenv("DSREC_TIME_BUCKETIZER", "data/processed/time_bucketizer.pkl"),
         user_mapping=root / os.getenv("DSREC_USER_MAPPING", "data/processed/user_mapping.pkl"),
         item_mapping=root / os.getenv("DSREC_ITEM_MAPPING", "data/processed/item_mapping.pkl"),
-        max_len=int(os.getenv("DSREC_MAX_LEN", "50")),
+        max_len=int(os.getenv("DSREC_MAX_LEN", "0")) or None,
     )
     return Recommender(predictor)

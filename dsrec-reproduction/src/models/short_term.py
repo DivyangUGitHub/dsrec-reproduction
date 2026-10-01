@@ -22,6 +22,7 @@ class ShortTermInterest(nn.Module):
         conv_width: int = 4,
         expansion: int = 2,
         dropout: float = 0.2,
+        ssm_backend: str = "torch",
     ) -> None:
         super().__init__()
 
@@ -43,6 +44,7 @@ class ShortTermInterest(nn.Module):
             conv_width=conv_width,
             expansion=expansion,
             dropout=dropout,
+            backend=ssm_backend,
         )
 
         self.time_gate = nn.Linear(

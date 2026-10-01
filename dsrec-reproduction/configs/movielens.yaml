@@ -6,5 +6,5 @@ separator: '::'
 min_rating: 1.0
 max_rating: 5.0
 sequence:
-  max_length: 50
+  max_length: 200
   split: leave_one_out

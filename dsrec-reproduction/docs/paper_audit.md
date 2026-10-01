@@ -42,7 +42,7 @@ Not specified in the paper. [ASSUMPTION]: full ranking over the entire item cata
 
 ## 10. Long-term branch
 A Mamba block (Eqs. 6-8): 1D convolution + SiLU gate, a selective SSM, then a residual projection back to the input. Sec. III-D.2.
-[PAPER-SPECIFIED] at the block level. [IMPLEMENTATION-DERIVED] for the exact selective-SSM parameterization (Δ, A, B, C discretization), since the paper only gives the generic continuous/discretized SSM equations (Eqs. 1-4) and defers to Gu & Dao's Mamba. Confidence: HIGH for structure, MEDIUM for exact numerics — plan is to use the official `mamba-ssm` package rather than reimplement the selective scan, and pin its version.
+[PAPER-SPECIFIED] at the block level. [IMPLEMENTATION-DERIVED] for the exact selective-SSM parameterization (Δ, A, B, C discretization), since the paper only gives the generic continuous/discretized SSM equations (Eqs. 1-4) and defers to Gu & Dao's Mamba. Confidence: HIGH for structure, MEDIUM for exact numerics. The code now exposes an official `mamba-ssm` backend selected by `configs/paper_movielens.yaml`; the default `torch` backend remains a portable approximation for Windows/demo use and is not an exact Mamba reproduction. The optional dependency is declared as `.[mamba]`.
 
 ## 11. Short-term branch
 A time-aware SSM with a sigmoid time gate that blends new input against the previous hidden state (Eqs. 10-12). Sec. III-E.
@@ -118,3 +118,19 @@ Table II, MovieLens-1M, DSRec: HR@10 = 0.3217, NDCG@10 = 0.1869, MRR@10 = 0.1454
 - Sec. III-D.1's prose describes the long-term embedding as X_l = MLP(X‖E_u), which doesn't match Eq. 5's actual formula (no MLP, no explicit E_u term). These are two different descriptions of the same thing in the same section. [ASSUMPTION]: implement Eq. 5 as the operative definition, since it's the only fully specified one, and note the mismatch rather than silently picking one.
 - Duplicate items within a user's sequence: retained or deduplicated is never stated. [ASSUMPTION]: retain duplicates (no dedup), since MovieLens-1M's average of 165.5 actions/user against 3,417 items implies repeat viewing is not filtered out elsewhere in the pipeline.
 - Padding convention (left- vs right-padding) for sequences shorter than 200: not stated. [ASSUMPTION]: right-pad with PAD_ID = 0, and use a padding mask everywhere; item IDs remapped so no real item collides with 0.
+
+
+## Implementation status after paper-alignment pass
+
+- The time-aware branch now owns its item-plus-time concatenation; the parent model no longer injects a second time embedding into the same input.
+- Cross-residual fusion uses the two independently refined branch outputs, with each cross-branch signal detached before addition.
+- HR@K, NDCG@K, and MRR@K are implemented. The evaluation CLI supports the held-out validation target and the paper's last-item test target.
+- The default evaluation masks prior context items from ranking but preserves the held-out target. The paper does not explicitly specify candidate filtering, so this remains an implementation assumption; use `--allow-seen-items` to disable it.
+- `configs/paper_movielens.yaml` records the reported MovieLens hyperparameters (D=64, state=32, convolution width=4, expansion=2, dropout=0.2, max length=200, train batch=2048, validation batch=4096, Adam learning rate=0.001). The number of blocks and time-bucket count are marked assumptions because the paper does not specify them for MovieLens. The epoch count is also a tunable implementation choice, not a reported paper value.
+- The preprocessing currently targets MovieLens-1M. Amazon-Beauty and Amazon-Video-Games ingestion/benchmark reproduction are not included in this pass; results should not be described as a reproduction of all three paper datasets.
+
+
+## Remaining reproduction gaps
+
+- The paper reports three datasets (MovieLens-1M, Amazon-Beauty, and Amazon-Video-Games) and compares DSRec with Caser, GRU4Rec, NARM, SASRec, BERT4Rec, Mamba4Rec, and SIGMA. This repository currently has the MovieLens-1M data pipeline and DSRec evaluation only; the Amazon ingestion and baseline implementations/results are not part of this alignment pass.
+- The paper's MovieLens table reports 6,041 users, 3,417 items, and 999,611 interactions, which do not match the commonly distributed MovieLens-1M ratings.dat counts. Because the paper does not specify a filtering procedure that explains these differences, the pipeline does not silently delete records just to force those numbers. Record the actual downloaded archive and resulting preprocessing statistics with any experiment.

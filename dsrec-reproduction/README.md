@@ -19,6 +19,9 @@ From the dsrec-reproduction/ directory:
 5. Run: python scripts/build_time_buckets.py
 6. Run: python scripts/validate_project.py
 7. Run: pytest
+8. For a portable smoke run: `python scripts/train.py --config configs/default.yaml`
+9. On supported Linux/CUDA, install official Mamba with `pip install -e ".[mamba]"`, then train using `python scripts/train.py --config configs/paper_movielens.yaml`
+10. Evaluate the held-out test item using the matching config: `python scripts/evaluate.py --config configs/paper_movielens.yaml --split test`
 
 The generated processed artifacts are required by inference. The trained checkpoint is a generated binary artifact and is intentionally not committed to source control.
 
@@ -51,3 +54,16 @@ Large generated datasets and checkpoints are deliberately excluded from normal G
 ## Production hardening
 
 Before public deployment, add authentication/rate limiting, structured observability, backups, and versioned database migrations. The current stack is a reproducible research/demo service.
+
+## Research-paper alignment notes
+
+- `configs/paper_movielens.yaml` captures the paper's reported MovieLens settings: D=64, SSM state=32, convolution width=4, expansion=2, dropout=0.2, maximum sequence length=200, training batch=2048, validation batch=4096, and Adam learning rate=0.001. The paper does not specify MovieLens block count, time-bucket count, or epoch count; those values are documented assumptions in `docs/paper_audit.md`.
+- The model includes separate long- and short-interest representations, historical-mean aggregation, log-scaled quantile time buckets, time-gated short-term state updates, detached residual cross-fusion, a tied item-embedding prediction matrix, and full-softmax cross-entropy.
+- `HR@K`, `NDCG@K`, and `MRR@K` are reported. Evaluation defaults to the last-item test target and masks items in the input context, except the held-out target. Candidate filtering is not specified by the paper, so use `--allow-seen-items` to run without this assumption.
+- The official Mamba backend is selected by the paper config and requires the optional `mamba-ssm` package in a supported Linux/CUDA environment. The portable `torch` backend used by the default config is a custom SSM-style approximation, **not an exact replacement for official Mamba**. Do not compare its scores as an exact paper reproduction without stating this difference.
+- This repository currently preprocesses MovieLens-1M only. The paper also evaluates Amazon-Beauty and Amazon-Video-Games; those dataset pipelines and full three-dataset experiments remain outstanding.
+
+
+**Checkpoint note:** the short-term input and cross-fusion data flow changed during this alignment pass. Retrain `best.pt` before treating metrics or recommendations as results from the aligned architecture. Older checkpoints may still load for compatibility, but they were trained with the earlier data flow and are not valid paper-aligned evaluations.
+
+The current alignment pass does **not** claim full reproduction of the paper's complete experiment section: Amazon-Beauty/Amazon-Video-Games data ingestion and the Caser/GRU4Rec/NARM/SASRec/BERT4Rec/Mamba4Rec/SIGMA baseline comparison suite remain to be added. The paper's reported MovieLens counts also differ from the standard distributed MovieLens-1M archive; see `docs/paper_audit.md` rather than forcing undocumented filters.
