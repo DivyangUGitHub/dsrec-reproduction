@@ -7,8 +7,8 @@ from collections.abc import Iterable
 import torch
 
 from .evaluator import evaluate_batch
-from .ranking import mask_seen_items
 from .metrics import hit_rate_at_k, mrr_at_k, ndcg_at_k, recall_at_k
+from .ranking import mask_seen_items
 
 
 def topk_predictions(logits: torch.Tensor, k: int) -> torch.Tensor:
