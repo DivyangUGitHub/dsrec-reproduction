@@ -10,11 +10,11 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_frontend() -> None:
+def test_api_root() -> None:
     client = TestClient(app)
     response = client.get("/")
     assert response.status_code == 200
-    assert "DSRec Recommendations" in response.text
+    assert response.json()["service"] == "DSRec Recommendation API"
 
 
 def test_interaction_round_trip() -> None:
