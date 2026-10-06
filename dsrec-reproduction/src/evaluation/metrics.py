@@ -22,3 +22,18 @@ def ndcg_at_k(logits: torch.Tensor, targets: torch.Tensor, k: int = 10) -> float
         torch.zeros_like(ranks, dtype=torch.float),
     )
     return float(values.mean())
+
+
+def mrr_at_k(logits: torch.Tensor, targets: torch.Tensor, k: int = 10) -> float:
+    """Mean reciprocal rank for one held-out next-item target per sequence."""
+    if k <= 0:
+        raise ValueError("k must be positive")
+    topk = logits.topk(min(k, logits.size(-1)), dim=-1).indices
+    hits = topk == targets.unsqueeze(-1)
+    ranks = hits.float().argmax(dim=-1) + 1
+    reciprocal = torch.where(
+        hits.any(dim=-1),
+        1.0 / ranks.float(),
+        torch.zeros_like(ranks, dtype=torch.float),
+    )
+    return float(reciprocal.mean())

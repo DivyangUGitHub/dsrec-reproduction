@@ -51,6 +51,8 @@ class DSRecBlock(nn.Module):
         short_ssm: bool = True,
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
+        ssm_backend: str = "torch",
+        paper_norms: bool = False,
     ):
         super().__init__()
 
@@ -63,6 +65,14 @@ class DSRecBlock(nn.Module):
         self.dual_interest = dual_interest
         self.use_short_ssm = short_ssm
         self.short_branch = short_branch
+        self.ssm_backend = ssm_backend
+        self.paper_norms = paper_norms
+        self.long_input_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
+        self.short_input_norm = (
+            nn.LayerNorm(d_model)
+            if paper_norms and short_branch == "mamba"
+            else nn.Identity()
+        )
 
         # Keep the baseline attribute name `short_ssm` so existing baseline
         # checkpoints remain loadable. The new boolean is `use_short_ssm`.
@@ -72,6 +82,7 @@ class DSRecBlock(nn.Module):
             conv_width=conv_width,
             expansion=expansion,
             dropout=dropout,
+            backend=ssm_backend,
         )
 
         if dual_interest:
@@ -83,6 +94,7 @@ class DSRecBlock(nn.Module):
                     conv_width=conv_width,
                     expansion=expansion,
                     dropout=dropout,
+                    ssm_backend=ssm_backend,
                 )
             elif short_ssm and short_branch == "mamba":
                 self.short_mamba = MambaBlock(
@@ -91,16 +103,19 @@ class DSRecBlock(nn.Module):
                     conv_width=conv_width,
                     expansion=expansion,
                     dropout=dropout,
+                    backend=ssm_backend,
                 )
             else:
                 self.short_identity = nn.Identity()
 
         self.long_norm = nn.LayerNorm(d_model)
         self.long_ffn = FeedForward(d_model, dropout)
+        self.long_post_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
 
         if dual_interest:
             self.short_norm = nn.LayerNorm(d_model)
             self.short_ffn = FeedForward(d_model, dropout)
+            self.short_post_norm = nn.LayerNorm(d_model) if paper_norms else nn.Identity()
 
     def forward(
         self,
@@ -109,7 +124,12 @@ class DSRecBlock(nn.Module):
         time_bucket_ids: torch.Tensor,
         mask: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        long_out = self.long_mamba(long_x, mask)
+        long_input = self.long_input_norm(long_x)
+        long_out = self.long_mamba(
+            long_input,
+            mask,
+            residual_input=long_x if self.paper_norms else None,
+        )
 
         if not self.dual_interest:
             long_out = self.long_norm(long_out)
@@ -119,7 +139,12 @@ class DSRecBlock(nn.Module):
         if not self.use_short_ssm:
             short_out = self.short_identity(short_x)
         elif self.short_branch == "mamba":
-            short_out = self.short_mamba(short_x, mask)
+            short_input = self.short_input_norm(short_x)
+            short_out = self.short_mamba(
+                short_input,
+                mask,
+                residual_input=short_x if self.paper_norms else None,
+            )
         else:
             short_out = self.short_ssm(
                 short_x,
@@ -127,17 +152,23 @@ class DSRecBlock(nn.Module):
                 mask,
             )
 
+        # Apply each branch's own FFN first. The paper describes the cross
+        # residual as detached auxiliary context after branch-specific
+        # encoding; use the two original branch outputs symmetrically so one
+        # branch does not accidentally consume the already-fused other branch.
+        long_refined = self.long_post_norm(
+            long_out + self.long_ffn(self.long_norm(long_out))
+        )
+        short_refined = self.short_post_norm(
+            short_out + self.short_ffn(self.short_norm(short_out))
+        )
+
         if self.cross_fusion:
-            # Residual cross-connection. Detach prevents cross-branch
-            # gradient entanglement, matching the baseline implementation.
-            long_out = long_out + short_out.detach()
-            short_out = short_out + long_out.detach()
-
-        long_out = self.long_norm(long_out)
-        short_out = self.short_norm(short_out)
-
-        long_out = long_out + self.long_ffn(long_out)
-        short_out = short_out + self.short_ffn(short_out)
+            long_out = long_refined + short_refined.detach()
+            short_out = short_refined + long_refined.detach()
+        else:
+            long_out = long_refined
+            short_out = short_refined
 
         return long_out, short_out
 
@@ -160,6 +191,8 @@ class DSRec(nn.Module):
         short_ssm: bool = True,
         long_branch: str = "mamba",
         short_branch: str = "time_aware_ssm",
+        ssm_backend: str = "torch",
+        paper_norms: bool = False,
     ):
         super().__init__()
 
@@ -170,6 +203,8 @@ class DSRec(nn.Module):
         self.short_ssm = short_ssm
         self.long_branch = long_branch
         self.short_branch = short_branch
+        self.ssm_backend = ssm_backend
+        self.paper_norms = paper_norms
 
         self.item_embedding = nn.Embedding(
             n_items + 1,
@@ -209,6 +244,8 @@ class DSRec(nn.Module):
                     short_ssm=short_ssm,
                     long_branch=long_branch,
                     short_branch=short_branch,
+                    ssm_backend=ssm_backend,
+                    paper_norms=paper_norms,
                 )
                 for _ in range(n_blocks)
             ]
@@ -251,11 +288,17 @@ class DSRec(nn.Module):
         mask: torch.Tensor,
     ) -> torch.Tensor:
         item_x = self.item_embedding(item_ids)
-        item_x = self.short_item_projection(item_x)
-        time_x = self.time_embedding(time_bucket_ids)
-        short_x = torch.cat([item_x, time_x], dim=-1)
-        short_x = self.short_input_projection(short_x)
-        return short_x * mask.unsqueeze(-1)
+
+        # The time-aware branch performs MLP_S(item || time) internally.
+        # Only the Dual-Mamba ablation builds a projected item+time input here.
+        if self.short_branch == "mamba":
+            item_x = self.short_item_projection(item_x)
+            time_x = self.time_embedding(time_bucket_ids)
+            item_x = self.short_input_projection(
+                torch.cat([item_x, time_x], dim=-1)
+            )
+
+        return item_x * mask.unsqueeze(-1)
 
     def forward(
         self,

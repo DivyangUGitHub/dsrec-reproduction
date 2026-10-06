@@ -12,4 +12,7 @@ def test_end_to_end_forward_and_metrics():
     with torch.no_grad():
         logits = model(items, times, mask)
     result = evaluate_batch(logits, torch.tensor([1, 2]), ks=(1, 3))
-    assert set(result) == {"HR@1", "NDCG@1", "HR@3", "NDCG@3"}
+    assert set(result) == {
+        "HR@1", "NDCG@1", "MRR@1",
+        "HR@3", "NDCG@3", "MRR@3",
+    }
